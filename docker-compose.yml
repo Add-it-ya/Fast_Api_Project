@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  api:
+    build: .
+    container_name: fastapi-app
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=demo-key
+      - JWT_SECRET_KEY=secret
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - prometheus
+    networks:
+      - backend
+
+  redis:
+    image: redis:alpine
+    container_name: redis1
+    ports:
+      - "6379:6379"
+    networks:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - backend
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
