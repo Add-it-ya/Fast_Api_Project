@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status
 
 from app.core.dependencies import get_auth_service, get_current_user
+from app.core.rate_limit import enforce_rate_limit
 from app.db.models import User
 from app.schemas.auth import Credentials, TokenResponse, UserResponse
 from app.services.auth_service import AuthService
@@ -8,7 +9,12 @@ from app.services.auth_service import AuthService
 router = APIRouter()
 
 
-@router.post('/register', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/register',
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_rate_limit)],
+)
 async def register(
     credentials: Credentials,
     auth: AuthService = Depends(get_auth_service),
@@ -16,7 +22,7 @@ async def register(
     return await auth.register(credentials.username, credentials.password)
 
 
-@router.post('/login', response_model=TokenResponse)
+@router.post('/login', response_model=TokenResponse, dependencies=[Depends(enforce_rate_limit)])
 async def login(
     credentials: Credentials,
     auth: AuthService = Depends(get_auth_service),

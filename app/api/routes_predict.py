@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_current_user, get_prediction_service, require_api_key
+from app.core.rate_limit import enforce_rate_limit
 from app.db.models import User
 from app.schemas.prediction import CarFeatures, PredictionResponse
 from app.services.model_service import PredictionService
@@ -8,7 +9,11 @@ from app.services.model_service import PredictionService
 router = APIRouter()
 
 
-@router.post('/predict', response_model=PredictionResponse, dependencies=[Depends(require_api_key)])
+@router.post(
+    '/predict',
+    response_model=PredictionResponse,
+    dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
+)
 async def predict_price(
     car: CarFeatures,
     user: User = Depends(get_current_user),
