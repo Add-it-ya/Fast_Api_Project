@@ -1,0 +1,18 @@
+.git
+.gitignore
+.dockerignore
+
+# training/EDA assets, not needed to serve the API
+notebooks/
+data/
+*.csv
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+.pytest_cache/
+.ipynb_checkpoints/
+README.md
