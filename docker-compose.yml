@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   api:
     build: .
@@ -7,12 +5,36 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - API_KEY=demo-key
-      - JWT_SECRET_KEY=secret
+      - API_KEY=local-dev-api-key
+      - JWT_SECRET_KEY=local-development-only-secret-key-not-for-production
+      - DATABASE_URL=postgresql+asyncpg://carprice:carprice@postgres:5432/carprice
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - redis
-      - prometheus
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres1
+    environment:
+      - POSTGRES_USER=carprice
+      - POSTGRES_PASSWORD=carprice
+      - POSTGRES_DB=carprice
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carprice -d carprice"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - backend
 
@@ -21,6 +43,11 @@ services:
     container_name: redis1
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - backend
 
@@ -43,6 +70,9 @@ services:
       - prometheus
     networks:
       - backend
+
+volumes:
+  pgdata:
 
 networks:
   backend:

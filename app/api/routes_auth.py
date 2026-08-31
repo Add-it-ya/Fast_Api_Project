@@ -1,18 +1,30 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from app.core.security import create_token
+from fastapi import APIRouter, Depends, status
+
+from app.core.dependencies import get_auth_service, get_current_user
+from app.db.models import User
+from app.schemas.auth import Credentials, TokenResponse, UserResponse
+from app.services.auth_service import AuthService
 
 router = APIRouter()
 
 
-class AuthInput(BaseModel):
-    username: str
-    password: str
+@router.post('/register', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def register(
+    credentials: Credentials,
+    auth: AuthService = Depends(get_auth_service),
+):
+    return await auth.register(credentials.username, credentials.password)
 
 
-@router.post('/login')
-def login(auth: AuthInput):
-    if (auth.username == 'admin') and (auth.password == 'admin'):
-        token = create_token({'sub': auth.username})
-        return {'access_token': token}
-    return {'error': 'Invalid Credentials'}
+@router.post('/login', response_model=TokenResponse)
+async def login(
+    credentials: Credentials,
+    auth: AuthService = Depends(get_auth_service),
+):
+    token, expires_in = await auth.authenticate(credentials.username, credentials.password)
+    return TokenResponse(access_token=token, expires_in=expires_in)
+
+
+@router.get('/me', response_model=UserResponse)
+async def me(user: User = Depends(get_current_user)):
+    return user

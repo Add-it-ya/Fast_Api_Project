@@ -1,16 +1,59 @@
-import os
-from dotenv import load_dotenv
+from functools import lru_cache
 
-load_dotenv()
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-class Settings:
-    PROJECT_NAME = 'Car Price API'
-    API_KEY = os.getenv('API_KEY', 'demo-key')
-    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'secret')
-    JWT_ALGORITHM = 'HS256'
-    REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-    MODEL_PATH = 'app/models/model.joblib'
+PLACEHOLDER_SECRETS = {'secret', 'changeme', 'change-me', 'password', 'demo', 'test'}
 
 
-settings = Settings()
+class Settings(BaseSettings):
+    """Application settings.
+
+    API_KEY, JWT_SECRET_KEY, DATABASE_URL and REDIS_URL have no defaults on
+    purpose: the app should refuse to boot rather than fall back to a value
+    that is safe locally and dangerous in production.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+        protected_namespaces=(),
+    )
+
+    PROJECT_NAME: str = 'Car Price Prediction API'
+
+    API_KEY: str = Field(min_length=8)
+    JWT_SECRET_KEY: str = Field(min_length=32)
+    DATABASE_URL: str
+    REDIS_URL: str
+
+    JWT_ALGORITHM: str = 'HS256'
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    MODEL_PATH: str = 'app/models/model.joblib'
+    PREDICTION_CACHE_TTL_SECONDS: int = 3600
+
+    RATE_LIMIT_REQUESTS: int = 60
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+
+    @field_validator('JWT_SECRET_KEY', 'API_KEY')
+    @classmethod
+    def reject_placeholder(cls, value: str, info) -> str:
+        if value.strip().lower() in PLACEHOLDER_SECRETS:
+            raise ValueError(
+                f'{info.field_name} is set to a placeholder value; '
+                'generate a real one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        return value
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

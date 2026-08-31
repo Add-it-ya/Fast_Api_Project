@@ -7,7 +7,7 @@ This project is a **Machine Learning-powered API** built using **FastAPI** to pr
 ## 📦 Project Features
 
 - ⚡ **Fully async stack**: `async def` routes, `redis.asyncio`, async SQLAlchemy 2.x, blocking ML inference offloaded with `asyncio.to_thread`
-- 🗄️ **Persistence**: User accounts and prediction logs stored via async SQLAlchemy (SQLite by default, swap via `DATABASE_URL`)
+- 🗄️ **Persistence**: User accounts and prediction logs stored in PostgreSQL 16 via async SQLAlchemy 2.x, schema managed by Alembic
 - 🔐 **Authentication**: JWT token auth + API key header, bcrypt-hashed passwords (passlib)
 - 🧠 **ML Model Prediction**: Trained model predicts used car prices
 - 🚀 **Redis Caching**: Avoid redundant model computation, async client
@@ -50,11 +50,18 @@ cd fastapi-project
 
 ### 2. Set Environment Variables
 
+Copy `.env.example` to `.env` and fill it in. There are no fallback defaults for
+these — the app fails to start if any is missing, too short, or left as a
+placeholder, so a misconfigured deployment cannot come up with a guessable secret.
+
 ```bash
-API_KEY=demo-key
-JWT_SECRET_KEY=your-secret
+JWT_SECRET_KEY=   # min 32 chars: python -c "import secrets; print(secrets.token_urlsafe(48))"
+API_KEY=          # min 8 chars
+DATABASE_URL=postgresql+asyncpg://carprice:carprice@localhost:5432/carprice
 REDIS_URL=redis://localhost:6379
 ```
+
+`docker-compose.yml` already supplies development values, so step 3 works without a `.env`.
 
 ### 3. Build and Run via Docker
 
