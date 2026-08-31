@@ -5,7 +5,7 @@ import joblib
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.api import routes_auth, routes_predict
+from app.api import routes_auth, routes_health, routes_predict
 from app.cache.redis_cache import close_redis
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
@@ -40,6 +40,7 @@ app = FastAPI(title=settings.PROJECT_NAME, version='2.0.0', lifespan=lifespan)
 
 app.add_middleware(LoggingMiddleware)
 
+app.include_router(routes_health.router, tags=['Health'])
 app.include_router(routes_auth.router, tags=['Auth'])
 app.include_router(routes_predict.router, tags=['Prediction'])
 
