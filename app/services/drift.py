@@ -27,8 +27,14 @@ DRIFT_PSI = Gauge(
     'model_feature_drift_psi',
     'Population Stability Index of a live feature against its training distribution',
     ['feature'],
+    # Each worker samples its own share of traffic; alert on the worst of them.
+    multiprocess_mode='max',
 )
-DRIFT_SAMPLES = Gauge('model_drift_window_samples', 'Observations in the current drift detection window')
+DRIFT_SAMPLES = Gauge(
+    'model_drift_window_samples',
+    'Observations in the current drift detection window',
+    multiprocess_mode='livesum',
+)
 
 STABLE = 0.1
 SIGNIFICANT = 0.25

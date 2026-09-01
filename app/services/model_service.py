@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+import time
 
 import pandas as pd
 
 from app.cache.redis_cache import build_cache_key, get_cached_prediction, set_cached_prediction
 from app.core.exceptions import ModelUnavailableError
+from app.core.metrics import INFERENCE_LATENCY
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,10 @@ class PredictionService:
             # scikit-learn inference is synchronous and CPU-bound; running it
             # inline would block the event loop and serialise every other
             # request in flight.
+            started = time.perf_counter()
             price = await asyncio.to_thread(_run_inference, self._model, features)
+            INFERENCE_LATENCY.observe(time.perf_counter() - started)
+
             await set_cached_prediction(cache_key, price)
             cache_hit = False
         else:

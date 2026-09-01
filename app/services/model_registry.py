@@ -14,8 +14,19 @@ from typing import Any
 
 import joblib
 import sklearn
+from prometheus_client import Gauge
 
 logger = logging.getLogger(__name__)
+
+MODEL_VERSION = Gauge(
+    'model_version', 'Version of the model this process has loaded', multiprocess_mode='max'
+)
+MODEL_SKLEARN_MATCH = Gauge(
+    'model_sklearn_version_match',
+    '1 when the runtime scikit-learn matches the version the artifact was pickled with',
+    # min: one mismatched worker should show as a mismatch.
+    multiprocess_mode='min',
+)
 
 
 @dataclass
@@ -72,7 +83,8 @@ def load_bundle(model_path: str, metadata_path: str) -> ModelBundle:
         )
 
     trained_with = metadata.get('sklearn_version')
-    if trained_with and trained_with != sklearn.__version__:
+    matches = not trained_with or trained_with == sklearn.__version__
+    if not matches:
         logger.warning(
             'Model v%s was pickled with scikit-learn %s but %s is installed. '
             'Predictions may differ or unpickling may fail.',
@@ -80,5 +92,8 @@ def load_bundle(model_path: str, metadata_path: str) -> ModelBundle:
             trained_with,
             sklearn.__version__,
         )
+
+    MODEL_VERSION.set(metadata.get('version') or 0)
+    MODEL_SKLEARN_MATCH.set(1 if matches else 0)
 
     return ModelBundle(pipeline=pipeline, metadata=metadata)

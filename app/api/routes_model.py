@@ -9,8 +9,16 @@ from app.services.drift import monitor
 
 router = APIRouter()
 
-LIVE_MAE = Gauge('model_live_mae', 'Mean absolute error over predictions with a reported outcome')
-LIVE_SCORED = Gauge('model_live_scored_predictions', 'Predictions that have a reported outcome')
+LIVE_MAE = Gauge(
+    'model_live_mae',
+    'Mean absolute error over predictions with a reported outcome',
+    multiprocess_mode='max',
+)
+LIVE_SCORED = Gauge(
+    'model_live_scored_predictions',
+    'Predictions that have a reported outcome',
+    multiprocess_mode='max',
+)
 
 
 @router.get('/model/info', response_model=ModelInfo)

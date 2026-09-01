@@ -18,10 +18,16 @@ import asyncio
 import contextlib
 import logging
 
+from prometheus_client import Counter, Gauge
+
 from app.db.repositories import PredictionRepository
 from app.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
+
+ROWS_WRITTEN = Counter('prediction_log_rows_written_total', 'Prediction rows persisted')
+ROWS_DROPPED = Counter('prediction_log_rows_dropped_total', 'Prediction rows shed because the queue was full')
+QUEUE_DEPTH = Gauge('prediction_log_queue_depth', 'Rows waiting to be written', multiprocess_mode='livesum')
 
 
 class PredictionWriter:
@@ -37,8 +43,10 @@ class PredictionWriter:
         slowing down or failing the request that produced it."""
         try:
             self._queue.put_nowait(row)
+            QUEUE_DEPTH.set(self._queue.qsize())
         except asyncio.QueueFull:
             self.dropped += 1
+            ROWS_DROPPED.inc()
             if self.dropped % 1000 == 1:
                 logger.warning('Prediction log queue full, dropped %d rows', self.dropped)
 
@@ -78,6 +86,8 @@ class PredictionWriter:
             async with SessionFactory() as session:
                 await PredictionRepository(session).log_many(batch)
             self.written += len(batch)
+            ROWS_WRITTEN.inc(len(batch))
+            QUEUE_DEPTH.set(self._queue.qsize())
         except Exception:
             logger.exception('Failed to write %d prediction rows', len(batch))
 

@@ -1,6 +1,16 @@
 #!/bin/sh
 set -e
 
+# Each uvicorn worker keeps its own metrics registry, so a scrape would land
+# on whichever worker answered and counters would appear to jump between
+# processes. prometheus_client aggregates across them through this directory;
+# it must start empty or stale files from the last run are counted.
+if [ -n "$PROMETHEUS_MULTIPROC_DIR" ]; then
+    rm -rf "$PROMETHEUS_MULTIPROC_DIR"
+    mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+    echo "Metrics aggregating through $PROMETHEUS_MULTIPROC_DIR"
+fi
+
 echo "Applying database migrations..."
 alembic upgrade head
 

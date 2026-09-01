@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends, Query
 
 from app.core.dependencies import (
@@ -8,6 +10,7 @@ from app.core.dependencies import (
     require_api_key,
 )
 from app.core.exceptions import AppError
+from app.core.metrics import PREDICTION_LATENCY, PREDICTION_VALUE, PREDICTIONS
 from app.core.rate_limit import enforce_rate_limit
 from app.db.repositories import PredictionRepository
 from app.schemas.model import ActualPrice, ScoredPrediction
@@ -35,8 +38,14 @@ async def predict_price(
     principal: Principal = Depends(get_current_principal),
     service: PredictionService = Depends(get_prediction_service),
 ):
+    started = time.perf_counter()
     features = car.model_dump()
     price, cache_hit = await service.predict(features)
+
+    outcome = 'hit' if cache_hit else 'miss'
+    PREDICTION_LATENCY.labels(cache=outcome).observe(time.perf_counter() - started)
+    PREDICTIONS.labels(company=features['company'], cache=outcome).inc()
+    PREDICTION_VALUE.observe(price)
 
     monitor.observe(features)
 

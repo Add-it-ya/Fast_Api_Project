@@ -14,6 +14,9 @@ services:
       - RATE_LIMIT_REQUESTS=1000000
       # 4 x (pool 5 + overflow 10) = 60 connections, under postgres' 100.
       - WEB_CONCURRENCY=4
+      # Required whenever WEB_CONCURRENCY > 1, or /metrics reports whichever
+      # worker happened to answer the scrape.
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +64,7 @@ services:
     container_name: prometheus1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
     ports:
       - "9090:9090"
     networks:
@@ -69,6 +73,15 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: grafana1
+    environment:
+      # Local stack only. Anonymous view access so the dashboard opens without
+      # a login prompt getting in the way of a demo.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_USERS_DEFAULT_THEME=light
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     ports:
       - "3000:3000"
     depends_on:
