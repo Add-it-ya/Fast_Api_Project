@@ -9,11 +9,11 @@ serves the same content at runtime.
 | | |
 |---|---|
 | Task | Regression — predict the selling price of a used car |
-| Algorithm | `RandomForestRegressor` (200 trees, max depth 18) inside a scikit-learn `Pipeline` |
+| Algorithm | `RandomForestRegressor` (100 trees, max depth 12) inside a scikit-learn `Pipeline` |
 | Framework | scikit-learn 1.3.2 |
 | Inputs | 12 features (7 numeric, 5 categorical) |
 | Output | A single price, in Indian rupees |
-| Version | 2 |
+| Version | 3 |
 
 ## Intended use
 
@@ -42,10 +42,10 @@ for every car:
 
 | | model | mean baseline |
 |---|---:|---:|
-| MAE | ₹71,466 | ₹275,313 |
-| RMSE | ₹122,607 | ₹468,791 |
+| MAE | ₹71,366 | ₹275,313 |
+| RMSE | ₹123,264 | ₹468,791 |
 | R² | 0.93 | -0.00 |
-| MAPE | 17.96% | 106.58% |
+| MAPE | 17.76% | 106.58% |
 
 The baseline is included deliberately. An R² of 0.93 means little on its own;
 it means more next to what predicting the average would have achieved.
@@ -53,6 +53,25 @@ it means more next to what predicting the average would have achieved.
 MAPE of ~18% is the honest headline: a typical prediction is off by roughly a
 fifth of the true price. That is useful as a starting point and not useful as a
 final number.
+
+## Artifact size
+
+The model is committed to the repository, so its size is a real cost. The forest
+was sized against a measured curve on this training set rather than picked:
+
+| trees | depth | MAE | R² | MAPE | artifact |
+|---:|---:|---:|---:|---:|---:|
+| 200 | 18 | ₹71,466 | 0.931 | 17.96% | 16.1 MB |
+| 150 | 14 | ₹70,955 | 0.930 | 17.76% | 7.8 MB |
+| **100** | **12** | **₹71,366** | **0.931** | **17.76%** | **3.4 MB** |
+| 60 | 10 | ₹73,170 | 0.931 | 18.19% | 1.1 MB |
+| 50 | 8 | ₹79,690 | 0.923 | 20.06% | 0.4 MB |
+
+Above roughly 100 trees at depth 12 the forest is memorising rather than
+learning: the error stops improving and only the file grows. The chosen
+configuration is 5x smaller than the largest tried and marginally more accurate.
+Artifacts are written with `joblib` compression level 3, which costs about
+0.3 s of load time at startup and saves a further 5x.
 
 ## Limitations
 

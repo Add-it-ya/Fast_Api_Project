@@ -1,10 +1,10 @@
 {
-  "version": 2,
-  "trained_at": "2026-09-01T17:53:13.599730+00:00",
+  "version": 3,
+  "trained_at": "2026-09-01T18:04:08.177957+00:00",
   "model_type": "RandomForestRegressor",
   "hyperparameters": {
-    "n_estimators": 200,
-    "max_depth": 18,
+    "n_estimators": 100,
+    "max_depth": 12,
     "random_state": 42,
     "n_jobs": -1
   },
@@ -36,10 +36,10 @@
     ]
   },
   "metrics": {
-    "mae": 71466.35,
-    "rmse": 122606.67,
-    "r2": 0.9315,
-    "mape_pct": 17.96
+    "mae": 71365.84,
+    "rmse": 123264.11,
+    "r2": 0.9307,
+    "mape_pct": 17.76
   },
   "baseline_metrics": {
     "mae": 275313.48,
@@ -289,5 +289,6 @@
         "14.0": 0.00018628912071535022
       }
     }
-  }
+  },
+  "artifact_bytes": 3398723
 }

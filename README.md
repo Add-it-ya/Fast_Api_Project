@@ -17,7 +17,8 @@ This project is a **Machine Learning-powered API** built using **FastAPI** to pr
 - 🐳 **Dockerized Setup**: Simplified deployment with Docker Compose
 - ☁️ **Cloud Deployment**: Easily deploy to [Render](https://render.com)
 - 🧪 **Load test included**: `scripts/load_test.py` measures p50/p95/p99 latency under configurable concurrency
-- ✅ **Tested**: 56 tests against real PostgreSQL and Redis, including a regression test that fails if inference ever blocks the event loop again
+- ✅ **Tested**: 101 tests against real PostgreSQL and Redis, including a regression test that fails if inference ever blocks the event loop again
+- 🔬 **Model lifecycle**: versioned artifact with recorded metrics and data hash, PSI drift detection, and live scoring against reported sale prices
 
 ---
 
@@ -163,9 +164,9 @@ Held-out metrics, against a baseline that predicts the training mean:
 
 | | model | mean baseline |
 |---|---:|---:|
-| MAE | ₹71,466 | ₹275,313 |
+| MAE | ₹71,366 | ₹275,313 |
 | R² | **0.93** | -0.00 |
-| MAPE | **17.96%** | 106.58% |
+| MAPE | **17.76%** | 106.58% |
 
 The baseline is there on purpose — an R² of 0.93 means little until you know
 what predicting the average would have scored.
