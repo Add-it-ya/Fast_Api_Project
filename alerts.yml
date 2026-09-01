@@ -1,0 +1,79 @@
+groups:
+  - name: car-price-api
+    rules:
+      - alert: ApiDown
+        expr: up{job="fastapi-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'API is not being scraped'
+          description: 'Prometheus has not reached {{ $labels.instance }} for a minute.'
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status="5xx"}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Over 1% of requests are failing'
+          description: '5xx rate is {{ $value | humanizePercentage }} over the last 5 minutes.'
+
+      - alert: PredictionLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95, sum(rate(prediction_latency_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Prediction p95 above 500ms'
+          description: 'p95 is {{ $value | humanizeDuration }}. Check saturation before blaming the model.'
+
+      - alert: CacheHitRatioCollapsed
+        expr: |
+          sum(rate(predictions_total{cache="hit"}[15m]))
+            / clamp_min(sum(rate(predictions_total[15m])), 0.001) < 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Cache is answering under 20% of predictions'
+          description: >-
+            Either traffic turned over, the cache is failing, or the TTL is
+            wrong. Every miss is a model call.
+
+      - alert: FeatureDriftSignificant
+        # 0.25 is the conventional PSI threshold for a significant shift.
+        expr: max(model_feature_drift_psi) > 0.25
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Live features have drifted from the training distribution'
+          description: >-
+            PSI is {{ $value | printf "%.2f" }}. Predictions may be degrading
+            before any accuracy metric shows it.
+
+      - alert: PredictionLogShedding
+        expr: rate(prediction_log_rows_dropped_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Prediction log rows are being dropped'
+          description: >-
+            The write queue is full, so rows are being shed to keep the request
+            path fast. The database is not keeping up with prediction volume.
+
+      - alert: PredictionLogQueueBacklog
+        expr: prediction_log_queue_depth > 5000
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Prediction write queue is backing up'
+          description: 'Depth is {{ $value }}. Shedding starts at 20,000.'

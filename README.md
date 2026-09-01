@@ -13,7 +13,7 @@ This project is a **Machine Learning-powered API** built using **FastAPI** to pr
 - 🔐 **Authentication**: JWT token auth + API key header, bcrypt-hashed passwords (passlib)
 - 🧠 **ML Model Prediction**: Trained model predicts used car prices
 - 🚀 **Redis Caching**: Avoid redundant model computation, async client
-- 📈 **Monitoring Ready**: Prometheus metrics + Grafana dashboards
+- 📈 **Monitoring**: provisioned Grafana dashboard (11 panels), 7 Prometheus alert rules, custom ML metrics, JSON logs with request-id correlation
 - 🐳 **Dockerized Setup**: Simplified deployment with Docker Compose
 - ☁️ **Cloud Deployment**: Easily deploy to [Render](https://render.com)
 - 🧪 **Load test included**: `scripts/load_test.py` measures p50/p95/p99 latency under configurable concurrency
@@ -150,6 +150,66 @@ the caller the row was saved.
 Connection pools are sized per worker: `WEB_CONCURRENCY x (DB_POOL_SIZE +
 DB_MAX_OVERFLOW)` must stay under PostgreSQL's `max_connections`. Exceeding it
 surfaces as `asyncpg.TooManyConnectionsError` under load, not at startup.
+
+---
+
+## 📈 Observability
+
+`docker-compose up` provisions a Grafana dashboard automatically — datasource,
+dashboard and alert rules are all committed, so there is nothing to click.
+
+Open **http://localhost:3000/d/car-price-api** (anonymous viewing is on for the
+local stack).
+
+**11 panels across two rows.** Service: throughput, cache hit ratio, prediction
+p95, 5xx rate, model version. Model health: prediction latency split by cache
+outcome, model inference time on its own, feature drift PSI, live error against
+training, predictions by company, and the prediction log writer.
+
+Splitting latency by cache outcome is the panel that earns its place — a cache
+hit runs around 8 ms and a miss around 240 ms, so a single blended p95 mostly
+measures the hit ratio rather than anything about the service.
+
+### Custom metrics
+
+| Metric | What it answers |
+|---|---|
+| `prediction_latency_seconds{cache}` | Is the cache doing its job, and what does a miss really cost? |
+| `model_inference_seconds` | Is the model slow, or the service around it? |
+| `predictions_total{company,cache}` | What is actually being asked about? |
+| `model_feature_drift_psi{feature}` | Has traffic stopped looking like the training data? |
+| `model_live_mae` | Is the model still right, against reported outcomes? |
+| `prediction_log_rows_written_total` / `_dropped_total` / `_queue_depth` | Is the async writer keeping up? |
+| `model_version`, `model_sklearn_version_match` | Which model is loaded, and is it safe to load? |
+
+### Alerts
+
+Seven rules in `alerts.yml`, loaded by Prometheus and visible at
+http://localhost:9090/alerts: API down, 5xx over 1%, prediction p95 over 500 ms,
+cache hit ratio collapsed under 20%, feature drift PSI over 0.25, prediction log
+shedding, and write-queue backlog.
+
+### Structured logs
+
+Logs are JSON with a request id on every line. An inbound `X-Request-ID` is
+honoured so a trace survives across services, and it comes back on the response
+so a caller can quote it:
+
+```json
+{"ts": "2026-09-01T18:22:26Z", "level": "INFO", "logger": "api.access",
+ "request_id": "my-trace-abc123", "message": "GET /health 200 0.2ms",
+ "method": "GET", "path": "/health", "status": 200, "duration_ms": 0.15}
+```
+
+Set `LOG_FORMAT=text` for human-readable output while developing.
+
+### Metrics across workers
+
+With `WEB_CONCURRENCY > 1` each worker keeps its own registry, so a scrape would
+report whichever worker happened to answer and counters would appear to jump
+between processes. `PROMETHEUS_MULTIPROC_DIR` makes `prometheus_client`
+aggregate across them; the entrypoint clears it at startup so stale files from a
+previous run are not counted. **Set it whenever you run more than one worker.**
 
 ---
 
