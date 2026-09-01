@@ -14,7 +14,7 @@ below comes from a script in this repository and can be reproduced.
 
 ---
 
-## 🏗️ Architecture
+## 📐 Architecture
 
 Three layers. Routes call services, services call repositories, and only
 repositories build queries — which is what keeps the separation real rather
@@ -370,7 +370,7 @@ Full documentation, including limitations and intended use:
 
 ---
 
-## 🗂️ Query optimisation
+## 🔍 Query optimisation
 
 `GET /predictions/history` filters by company and model year and returns the
 newest first. Against 1,010,000 seeded rows (187 MB), with only a primary key on
@@ -462,7 +462,7 @@ throughput *worse* until the connection pool was resized.
 
 ---
 
-## ⚠️ Known limitations
+## 🚧 Known limitations
 
 - **Sub-100 ms p95 does not hold at 100-way concurrency.** It holds to roughly
   10–15 clients. On one host even `/health`, which touches nothing, saturates
