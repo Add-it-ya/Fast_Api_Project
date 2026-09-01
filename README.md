@@ -89,6 +89,40 @@ CONCURRENCY=100 TOTAL_REQUESTS=1000 python scripts/load_test.py
 The script logs in, warms the cache, then fires `TOTAL_REQUESTS` `/predict`
 calls across `CONCURRENCY` workers and prints p50 / p95 / p99 / max latency.
 
+Each run generates a fresh pool of feature vectors, so a repeat run is not
+quietly measuring a Redis cache that the previous run warmed. Cache hits and
+misses are reported separately — a p95 made up of cache hits says nothing about
+the inference path. Pin `SEED` to reproduce a run exactly.
+
+---
+
+## 📊 Measured performance
+
+Docker Desktop, 12 CPUs available, single uvicorn worker, all services on one
+host. 1000 requests per run, ~58% cache miss rate. Raw runs are in
+`benchmarks/`.
+
+| Concurrency | Throughput | p50 | p95 | p99 |
+|------------:|-----------:|----:|----:|----:|
+| 1   |  95 req/s |  11 ms |   14 ms |   17 ms |
+| 10  | 125 req/s |  77 ms |  114 ms |  133 ms |
+| 25  | 111 req/s | 211 ms |  368 ms |  588 ms |
+| 50  | 120 req/s | 394 ms |  548 ms |  995 ms |
+| 100 | 112 req/s | 740 ms | 1955 ms | 2732 ms |
+
+Throughput saturates near 120 req/s, so past roughly 10 concurrent clients the
+extra latency is queueing rather than work — p95 stays under 100 ms up to about
+8-way concurrency and degrades linearly after that.
+
+Two measured contributors to the ceiling, both still open:
+
+- **Per-request logging is synchronous.** Suppressing the logging middleware and
+  the uvicorn access log took a no-op endpoint from 156 to 678 req/s on the same
+  host.
+- **Every prediction makes four network round trips** before responding: a user
+  lookup for the bearer token and the prediction insert against PostgreSQL, plus
+  a rate-limit counter and a cache read against Redis.
+
 ---
 
 ## 🧪 Running the tests
