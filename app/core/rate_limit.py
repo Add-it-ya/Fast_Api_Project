@@ -26,10 +26,13 @@ async def enforce_rate_limit(request: Request) -> None:
     bucket = int(time.time() // window)
     key = f'ratelimit:{_client_id(request)}:{request.url.path}:{bucket}'
 
-    redis = get_redis()
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window)
+    # One round trip instead of two. The key already embeds the time bucket, so
+    # refreshing the TTL on every hit cannot extend the window.
+    async with get_redis().pipeline(transaction=False) as pipe:
+        pipe.incr(key)
+        pipe.expire(key, window * 2)
+        count, _ = await pipe.execute()
+
     if count > settings.RATE_LIMIT_REQUESTS:
         raise RateLimitExceededError(
             f'Rate limit of {settings.RATE_LIMIT_REQUESTS} requests per {window}s exceeded'
