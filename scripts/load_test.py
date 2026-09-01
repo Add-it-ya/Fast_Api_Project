@@ -46,6 +46,9 @@ PASSWORD = os.getenv('LOAD_TEST_PASSWORD', 'load-test-password')
 # Fresh vectors per run by default, so a repeat run is not silently measuring a
 # cache Redis warmed by the previous one. Pin SEED to reproduce a run exactly.
 SEED = int(os.getenv('SEED', str(random.randrange(2**31))))
+# Groups a set of runs, so results taken before and after a change stay
+# distinguishable once they are committed.
+LABEL = os.getenv('LABEL', 'adhoc')
 RESULTS_DIR = REPO_ROOT / 'benchmarks'
 
 
@@ -149,6 +152,7 @@ async def main() -> None:
             'total_requests': TOTAL_REQUESTS,
             'unique_vectors': UNIQUE_VECTORS,
             'seed': SEED,
+            'label': LABEL,
         },
         'wall_seconds': round(wall_seconds, 3),
         'throughput_rps': round(len(results) / wall_seconds, 1),
@@ -191,9 +195,10 @@ async def main() -> None:
             )
     print('\nall figures in milliseconds')
 
-    RESULTS_DIR.mkdir(exist_ok=True)
+    out_dir = RESULTS_DIR / LABEL
+    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    out = RESULTS_DIR / f'loadtest-c{CONCURRENCY}-n{TOTAL_REQUESTS}-{stamp}.json'
+    out = out_dir / f'loadtest-c{CONCURRENCY}-n{TOTAL_REQUESTS}-{stamp}.json'
     out.write_text(json.dumps(report, indent=2) + '\n')
     print(f'\nwrote {out.relative_to(REPO_ROOT)}')
 

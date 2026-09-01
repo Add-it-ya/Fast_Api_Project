@@ -98,30 +98,57 @@ the inference path. Pin `SEED` to reproduce a run exactly.
 
 ## 📊 Measured performance
 
-Docker Desktop, 12 CPUs available, single uvicorn worker, all services on one
-host. 1000 requests per run, ~58% cache miss rate. Raw runs are in
-`benchmarks/`.
+Docker Desktop, 12 CPUs, all services on one host. 1000 requests per run,
+~55% cache miss rate. Raw runs are committed under `benchmarks/`.
 
-| Concurrency | Throughput | p50 | p95 | p99 |
-|------------:|-----------:|----:|----:|----:|
-| 1   |  95 req/s |  11 ms |   14 ms |   17 ms |
-| 10  | 125 req/s |  77 ms |  114 ms |  133 ms |
-| 25  | 111 req/s | 211 ms |  368 ms |  588 ms |
-| 50  | 120 req/s | 394 ms |  548 ms |  995 ms |
-| 100 | 112 req/s | 740 ms | 1955 ms | 2732 ms |
+`baseline` is a single uvicorn worker before any tuning; `optimised` is the
+current code on 4 workers. Optimised figures are the median of three runs;
+baseline figures are a single run each, so treat those as indicative.
 
-Throughput saturates near 120 req/s, so past roughly 10 concurrent clients the
-extra latency is queueing rather than work — p95 stays under 100 ms up to about
-8-way concurrency and degrades linearly after that.
+| Concurrency | baseline p95 | optimised p95 | baseline rps | optimised rps |
+|------------:|-------------:|--------------:|-------------:|--------------:|
+| 1   |   14 ms |     **9 ms** |  95 |     **173** |
+| 10  |  114 ms |    **47 ms** | 124 |     **445** |
+| 25  |  368 ms |   **166 ms** | 111 |     **337** |
+| 50  |  548 ms |       790 ms | 120 |     **187** |
+| 100 | 1955 ms |      1415 ms | 112 |     **187** |
 
-Two measured contributors to the ceiling, both still open:
+Throughput improved at every level, by 1.6x to 3.6x. p95 improved everywhere
+except 50-way, where the single baseline run looks optimistic next to its own
+neighbours and the comparison is not trustworthy.
 
-- **Per-request logging is synchronous.** Suppressing the logging middleware and
-  the uvicorn access log took a no-op endpoint from 156 to 678 req/s on the same
-  host.
-- **Every prediction makes four network round trips** before responding: a user
-  lookup for the bearer token and the prediction insert against PostgreSQL, plus
-  a rate-limit counter and a cache read against Redis.
+**Sub-100 ms p95 holds to roughly 10-15 concurrent clients.** It does not hold at
+100 — that needs more than one host. On this hardware even `/health`, which
+touches nothing, saturates around 530 req/s at 100-way concurrency, so the
+remaining latency there is queueing that no application-level change removes.
+
+### What the optimisation actually was
+
+Three bottlenecks, each measured before being changed:
+
+1. **Synchronous logging.** `logging` writes to stdout, and in an async service
+   the calling thread is the event loop, so every log line stalled every request
+   in flight. Records now go through a `QueueHandler` and a background thread
+   does the writing, the access middleware was rewritten as pure ASGI rather than
+   `BaseHTTPMiddleware`, and uvicorn's duplicate access log is off. On its own
+   this took `/health` from 156 to 739 req/s.
+2. **A database round trip per authenticated request.** `get_current_user`
+   loaded the user on every call. `/predict` now builds a `Principal` from the
+   token claims instead, which is what a stateless JWT is for. Measured cost of
+   that lookup: ~2.2 ms per request.
+3. **A commit per prediction.** Prediction rows are an analytics record the
+   caller never reads back, so they are queued and written by a single consumer
+   as one multi-row `INSERT` per batch. Doing this as a per-request background
+   task first was *worse* — every task opened its own session and fought over the
+   connection pool — which is why it is batched rather than merely deferred.
+
+Rows still queued when the process dies are lost. That is the trade for taking
+the write off the request path, and it is only acceptable because nothing tells
+the caller the row was saved.
+
+Connection pools are sized per worker: `WEB_CONCURRENCY x (DB_POOL_SIZE +
+DB_MAX_OVERFLOW)` must stay under PostgreSQL's `max_connections`. Exceeding it
+surfaces as `asyncpg.TooManyConnectionsError` under load, not at startup.
 
 ---
 

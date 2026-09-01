@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-09-01T13:32:59.265855+00:00",
+  "config": {
+    "base_url": "http://api:8000",
+    "concurrency": 1,
+    "total_requests": 1000,
+    "unique_vectors": 800,
+    "seed": 1202525375,
+    "label": "optimised"
+  },
+  "wall_seconds": 5.783,
+  "throughput_rps": 172.9,
+  "successful": 1000,
+  "failed": 0,
+  "failures_by_status": {},
+  "cache_hit_ratio": 0.446,
+  "overall": {
+    "count": 1000,
+    "mean_ms": 5.75,
+    "p50_ms": 6.64,
+    "p95_ms": 9.09,
+    "p99_ms": 10.74,
+    "max_ms": 64.11
+  },
+  "cache_miss": {
+    "count": 554,
+    "mean_ms": 7.78,
+    "p50_ms": 7.41,
+    "p95_ms": 9.64,
+    "p99_ms": 10.98,
+    "max_ms": 64.11
+  },
+  "cache_hit": {
+    "count": 446,
+    "mean_ms": 3.23,
+    "p50_ms": 3.09,
+    "p95_ms": 4.18,
+    "p99_ms": 5.14,
+    "max_ms": 10.76
+  }
+}
