@@ -152,6 +152,65 @@ surfaces as `asyncpg.TooManyConnectionsError` under load, not at startup.
 
 ---
 
+## 🧠 Model lifecycle
+
+`python -m training.train_model` writes the fitted pipeline **and** a metadata
+file recording what produced it: version, training date, data hash, the
+scikit-learn version it was pickled with, validation metrics, and the training
+feature distribution. `GET /model/info` serves that at runtime.
+
+Held-out metrics, against a baseline that predicts the training mean:
+
+| | model | mean baseline |
+|---|---:|---:|
+| MAE | ₹71,466 | ₹275,313 |
+| R² | **0.93** | -0.00 |
+| MAPE | **17.96%** | 106.58% |
+
+The baseline is there on purpose — an R² of 0.93 means little until you know
+what predicting the average would have scored.
+
+### Drift detection
+
+`GET /model/drift` reports **Population Stability Index** per feature against
+the training distribution, and exports `model_feature_drift_psi{feature=...}` to
+Prometheus. Under 0.1 is stable, 0.1–0.25 moderate, above 0.25 significant.
+Input drift is the earliest available warning: accuracy cannot be measured until
+real outcomes come back, but the input distribution shifts immediately.
+
+`scripts/drift_demo.py` demonstrates it — one batch drawn from the training
+distribution, then one skewed towards newer luxury cars:
+
+```
+after in-distribution traffic:
+  window 300 samples, worst PSI 0.0479 (stable)
+
+after shifted traffic:
+  window 1500 samples, worst PSI 3.2609 (significant)
+  company            3.261  significant
+  transmission       2.880  significant
+  km_driven          2.847  significant
+```
+
+### Scoring against reality
+
+`POST /predictions/{id}/actual` attaches a real sale price to a logged
+prediction; `GET /model/performance` reports live error over recent scored
+predictions next to the training metrics, and exports `model_live_mae`. This is
+what turns the prediction log from an archive into a monitoring asset.
+
+### Version safety
+
+The artifact is a pickle tied to the scikit-learn that wrote it — loading this
+model under 1.9.0 raises rather than degrading. The version is recorded at
+training time, checked at startup, and surfaced as `version_match` on
+`/model/info`.
+
+Full documentation, including limitations and intended use:
+[docs/model_card.md](docs/model_card.md).
+
+---
+
 ## 🗂️ Query optimisation
 
 `GET /predictions/history` filters by company and model year and returns the
