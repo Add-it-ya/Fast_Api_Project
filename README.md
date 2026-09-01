@@ -2,7 +2,60 @@
 
 [![CI](https://github.com/Add-it-ya/Fast_Api_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Add-it-ya/Fast_Api_Project/actions/workflows/ci.yml)
 
-This project is a **Machine Learning-powered API** built using **FastAPI** to predict the selling price of a used car based on its characteristics.
+A **FastAPI** service that predicts the selling price of a used car from twelve
+features, built to be measured rather than described: every performance claim
+below comes from a script in this repository and can be reproduced.
+
+**Jump to:** [Architecture](#-architecture) · [Quickstart](#-getting-started-local)
+· [Performance](#-measured-performance) · [Container](#-container)
+· [Observability](#-observability) · [Model lifecycle](#-model-lifecycle)
+· [Query optimisation](#-query-optimisation) · [Tests](#-running-the-tests)
+· [Design decisions](#-design-decisions) · [Limitations](#-known-limitations)
+
+---
+
+## 🏗️ Architecture
+
+Three layers. Routes call services, services call repositories, and only
+repositories build queries — which is what keeps the separation real rather
+than nominal.
+
+```mermaid
+flowchart TB
+    client([Client])
+
+    subgraph api["FastAPI · 4 uvicorn workers"]
+        mw["LoggingMiddleware<br/><i>request id, JSON access log</i>"]
+        auth["Auth<br/><i>JWT bearer + API key</i>"]
+        rl["Rate limiter"]
+        routes["<b>API layer</b><br/>routes_predict · routes_model · routes_auth"]
+        services["<b>Business layer</b><br/>PredictionService · AuthService<br/>DriftMonitor · PredictionWriter"]
+        repos["<b>Data access layer</b><br/>PredictionRepository · UserRepository"]
+    end
+
+    redis[("Redis<br/><i>cache · rate limit</i>")]
+    pg[("PostgreSQL 16<br/><i>users · predictions</i>")]
+    model["scikit-learn pipeline<br/><i>asyncio.to_thread</i>"]
+    prom["Prometheus"]
+    graf["Grafana"]
+
+    client --> mw --> auth --> rl --> routes --> services
+    services -->|"cache hit ~8ms"| redis
+    services -->|"miss ~240ms"| model
+    services --> repos --> pg
+    services -.->|"queued, batched"| repos
+    rl --> redis
+    api -->|"/metrics every 10s"| prom --> graf
+
+    classDef store fill:#e8f0fe,stroke:#4285f4
+    classDef ml fill:#e6f4ea,stroke:#34a853
+    class redis,pg store
+    class model ml
+```
+
+The dotted edge is the prediction log: rows are queued and written in batches
+after the response is sent, so the commit is off the request path
+([ADR 0004](docs/adr/0004-batch-the-prediction-log.md)).
 
 ---
 
@@ -48,8 +101,8 @@ The prediction model expects the following input features:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/fastapi-project.git
-cd fastapi-project
+git clone https://github.com/Add-it-ya/Fast_Api_Project.git
+cd Fast_Api_Project
 ```
 
 ### 2. Set Environment Variables
@@ -77,8 +130,9 @@ docker-compose up --build
 
 - FastAPI Docs: http://localhost:8000/docs
 - FastAPI Metrics: http://localhost:8000/metrics
-- Prometheus UI: http://localhost:9090
-- Grafana UI: http://localhost:3000
+- Prometheus UI: http://localhost:9090 (alerts at `/alerts`)
+- Grafana UI: http://localhost:3000 — the dashboard is
+  [provisioned automatically](#-observability), no login needed
 
 ### 5. Run the load test
 
@@ -198,6 +252,12 @@ dashboard and alert rules are all committed, so there is nothing to click.
 
 Open **http://localhost:3000/d/car-price-api** (anonymous viewing is on for the
 local stack).
+
+> To capture the dashboard for this README: bring the stack up, generate traffic
+> with `CONCURRENCY=10 TOTAL_REQUESTS=1200 python scripts/load_test.py`, then
+> open `http://localhost:3000/d/car-price-api?kiosk` in a window at least
+> 1600 px wide — narrower and Grafana renders the plot areas blank. Save it to
+> `docs/images/dashboard.png`.
 
 **11 panels across two rows.** Service: throughput, cache hit ratio, prediction
 p95, 5xx rate, model version. Model health: prediction latency split by cache
@@ -378,6 +438,60 @@ CI runs the same suite on Python 3.10, 3.11 and 3.12, plus `ruff`, `mypy` and
 | Types | `mypy app` |
 | Security | `bandit -c pyproject.toml -r app` |
 | Tests | `pytest --cov=app` |
+
+---
+
+## 🧭 Design decisions
+
+Each decision below is recorded in [`docs/adr/`](docs/adr/) with what was
+measured and what it cost.
+
+| Decision | Why | Cost |
+|---|---|---|
+| [Offload inference to a thread](docs/adr/0001-offload-inference-to-a-thread.md) | Sync `predict` on an async route blocks every request in flight | Bounded by executor threads; concurrency, not parallelism |
+| [Redis, not in-process cache](docs/adr/0002-redis-for-prediction-cache.md) | 4 workers would each keep their own copy | Redis on the read path |
+| [PostgreSQL over SQLite](docs/adr/0003-postgresql-over-sqlite.md) | Concurrent writers, real query planner, `COPY` | An operational dependency |
+| [Batch the prediction log](docs/adr/0004-batch-the-prediction-log.md) | A commit per request on the critical path | Queued rows are lost on crash |
+| [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 39 MB, maintained on every insert |
+| [Token-only principal](docs/adr/0006-token-only-principal.md) | A database lookup on every request cost ~2.2 ms | Deleted users keep access until expiry |
+| [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | Per-worker windows; needs 200+ samples |
+
+Two of these were arrived at by measuring a worse alternative first: per-request
+`BackgroundTasks` was slower than batching, and more uvicorn workers made
+throughput *worse* until the connection pool was resized.
+
+---
+
+## ⚠️ Known limitations
+
+- **Sub-100 ms p95 does not hold at 100-way concurrency.** It holds to roughly
+  10–15 clients. On one host even `/health`, which touches nothing, saturates
+  around 530 req/s — past that the latency is queueing, and no application
+  change removes it. Getting further needs more than one machine.
+- **The model is modest.** MAPE is ~18%: a typical prediction is off by about a
+  fifth of the true price. Useful as a starting point, not as a final number.
+  Under 7,000 training rows for a 32-brand market, and 19 of 30 brands are under
+  1% of the data.
+- **No temporal validation.** The train/test split is random, not chronological,
+  so the metrics say nothing about how the model holds up as the market moves.
+  Prices are historical and unadjusted for inflation.
+- **Point estimates only.** No prediction interval, so the API cannot express
+  how confident it is about any individual car.
+- **The artifact is a pickle** tied to scikit-learn 1.3.2. Loading it under
+  1.9.0 raises rather than degrading. The version is recorded and checked at
+  startup, and surfaced as `version_match` on `/model/info`, but the underlying
+  fragility remains.
+- **Queued prediction rows are lost if the process dies**, and are shed when the
+  queue is full. Acceptable for an analytics log, not for anything the caller is
+  told was saved.
+- **A deleted user keeps access until their token expires** (up to 30 minutes) —
+  inherent to stateless JWT.
+- **Drift state is per-worker and in memory.** Prometheus sees one series per
+  worker; alert on the maximum, not on a single number.
+- **A Redis outage fails predictions** rather than degrading to a direct model
+  call. The cache is on the read path and is not currently optional.
+- **Single-region, single-host.** No horizontal scaling story, no load balancer,
+  no live deployment.
 
 ---
 
