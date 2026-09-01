@@ -9,6 +9,9 @@ services:
       - JWT_SECRET_KEY=local-development-only-secret-key-not-for-production
       - DATABASE_URL=postgresql+asyncpg://carprice:carprice@postgres:5432/carprice
       - REDIS_URL=redis://redis:6379
+      # Raised well above the production default (60/min) so the bundled load
+      # test measures the prediction path rather than the rate limiter.
+      - RATE_LIMIT_REQUESTS=1000000
     depends_on:
       postgres:
         condition: service_healthy
