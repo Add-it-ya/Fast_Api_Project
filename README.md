@@ -163,12 +163,17 @@ slim base is missing that the model actually needs.
 | | before | after |
 |---|---:|---:|
 | Base | `python:3.10` | `python:3.10-slim-bookworm`, pinned by digest |
-| Image size | 2.21 GB | **831 MB** |
+| Image size (Docker Desktop) | 2.21 GB | **831 MB** |
+| Image size (single platform, CI) | — | **517 MB** |
 | Runs as | root | **uid 999 (`app`)** |
 | Cold start to healthy | — | ~3.9 s, including migrations |
 
-**62% smaller and unprivileged.** The base is pinned by digest so a rebuild
-months from now produces the same image rather than whatever the tag points at.
+**62% smaller and unprivileged.** Both size figures are real and measured the
+same way on each host: Docker Desktop's buildx attaches multi-platform
+attestation manifests, so it reports more than the single-platform image CI
+actually builds. 517 MB is what would be deployed. The base is pinned by digest
+so a rebuild months from now produces the same image rather than whatever the
+tag points at.
 
 The runtime user cannot write to the virtualenv, which is the point — so test
 tooling gets its own target instead of the production image being loosened to
