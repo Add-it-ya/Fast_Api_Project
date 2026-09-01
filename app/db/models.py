@@ -44,6 +44,11 @@ class Prediction(Base):
             'year',
             text('created_at DESC'),
         ),
+        Index(
+            'ix_predictions_actual_price_created_at',
+            'created_at',
+            postgresql_where=text('actual_price IS NOT NULL'),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -65,6 +70,9 @@ class Prediction(Base):
     seats: Mapped[float] = mapped_column(Float, nullable=False)
 
     predicted_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    # Filled in later, if the real sale price is ever reported back. This is
+    # what makes the prediction log a monitoring asset rather than an archive.
+    actual_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

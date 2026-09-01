@@ -5,7 +5,7 @@ session or build a statement themselves, which is what keeps the API, business
 and data-access layers genuinely separate rather than nominally so.
 """
 
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Prediction, User
@@ -67,6 +67,47 @@ class PredictionRepository:
         )
         result = await self._session.execute(statement)
         return list(result.scalars().all())
+
+    async def record_actual(self, prediction_id: int, actual_price: float) -> Prediction | None:
+        prediction = await self._session.get(Prediction, prediction_id)
+        if prediction is None:
+            return None
+        prediction.actual_price = actual_price
+        await self._session.commit()
+        await self._session.refresh(prediction)
+        return prediction
+
+    async def live_performance(self, limit: int = 1000) -> dict:
+        """Error over the most recent predictions that have a reported outcome.
+
+        This is the model scored against reality, as opposed to the validation
+        metrics it was trained with.
+        """
+        recent = (
+            select(
+                Prediction.predicted_price.label('predicted'),
+                Prediction.actual_price.label('actual'),
+            )
+            .where(Prediction.actual_price.is_not(None))
+            .order_by(Prediction.created_at.desc())
+            .limit(limit)
+            .subquery()
+        )
+
+        error = func.abs(recent.c.predicted - recent.c.actual)
+        result = await self._session.execute(
+            select(
+                func.count().label('scored'),
+                func.avg(error).label('mae'),
+                func.avg(error / func.nullif(recent.c.actual, 0) * 100).label('mape'),
+            ).select_from(recent)
+        )
+        row = result.one()
+        return {
+            'scored': int(row.scored or 0),
+            'mae': round(float(row.mae), 2) if row.mae is not None else None,
+            'mape_pct': round(float(row.mape), 2) if row.mape is not None else None,
+        }
 
     async def log_many(self, rows: list[dict]) -> int:
         """Insert a batch of prediction rows in a single statement.
