@@ -1,5 +1,7 @@
 # 🚗 Car Price Prediction API
 
+[![CI](https://github.com/Add-it-ya/Fast_Api_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Add-it-ya/Fast_Api_Project/actions/workflows/ci.yml)
+
 This project is a **Machine Learning-powered API** built using **FastAPI** to predict the selling price of a used car based on its characteristics.
 
 ---
@@ -15,6 +17,7 @@ This project is a **Machine Learning-powered API** built using **FastAPI** to pr
 - 🐳 **Dockerized Setup**: Simplified deployment with Docker Compose
 - ☁️ **Cloud Deployment**: Easily deploy to [Render](https://render.com)
 - 🧪 **Load test included**: `scripts/load_test.py` measures p50/p95/p99 latency under configurable concurrency
+- ✅ **Tested**: 56 tests against real PostgreSQL and Redis, including a regression test that fails if inference ever blocks the event loop again
 
 ---
 
@@ -85,6 +88,31 @@ CONCURRENCY=100 TOTAL_REQUESTS=1000 python scripts/load_test.py
 
 The script logs in, warms the cache, then fires `TOTAL_REQUESTS` `/predict`
 calls across `CONCURRENCY` workers and prints p50 / p95 / p99 / max latency.
+
+---
+
+## 🧪 Running the tests
+
+The suite runs against a real PostgreSQL and Redis rather than mocks. It creates
+its own `carprice_test` database and uses Redis db 1, so it never touches
+development data.
+
+```bash
+docker-compose up -d postgres redis
+pip install -r requirements-dev.txt
+pytest --cov=app --cov-report=term-missing
+```
+
+CI runs the same suite on Python 3.10, 3.11 and 3.12, plus `ruff`, `mypy` and
+`bandit`, on every push and pull request.
+
+| Check | Command |
+|---|---|
+| Lint | `ruff check .` |
+| Format | `ruff format --check .` |
+| Types | `mypy app` |
+| Security | `bandit -c pyproject.toml -r app` |
+| Tests | `pytest --cov=app` |
 
 ---
 

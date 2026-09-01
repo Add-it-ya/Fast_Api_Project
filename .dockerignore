@@ -1,6 +1,9 @@
 .git
 .gitignore
+.gitattributes
 .dockerignore
+.github/
+.pre-commit-config.yaml
 
 # training/EDA assets, not needed to serve the API
 notebooks/
