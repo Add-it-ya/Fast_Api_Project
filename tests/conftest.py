@@ -22,7 +22,6 @@ os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-key-of-at-least-32-char
 import asyncio
 
 import asyncpg
-import joblib
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -33,6 +32,8 @@ from app.core.config import settings
 from app.db.models import Base
 from app.db.session import engine
 from app.main import app
+from app.services.drift import monitor
+from app.services.model_registry import load_bundle
 from app.services.prediction_writer import writer
 
 VALID_CAR = {
@@ -71,6 +72,9 @@ async def _create_test_database() -> None:
 async def _create_schema() -> None:
     setup_engine = create_async_engine(settings.DATABASE_URL)
     async with setup_engine.begin() as conn:
+        # Drop first: create_all leaves an existing table alone, so a column
+        # added since the test database was last built would never appear.
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     await setup_engine.dispose()
 
@@ -115,13 +119,16 @@ def flush_predictions():
 
 
 @pytest.fixture(scope='session')
-def ml_model():
-    return joblib.load(settings.MODEL_PATH)
+def model_bundle():
+    return load_bundle(settings.MODEL_PATH, settings.MODEL_METADATA_PATH)
 
 
 @pytest.fixture
-async def client(ml_model):
-    app.state.model = ml_model
+async def client(model_bundle):
+    app.state.model_bundle = model_bundle
+    app.state.model = model_bundle.pipeline
+    # Normally done in the lifespan handler, which the ASGI transport skips.
+    monitor.configure(model_bundle.training_distribution)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test') as ac:
         yield ac

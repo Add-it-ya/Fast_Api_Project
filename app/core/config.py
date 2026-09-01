@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     MODEL_PATH: str = 'app/models/model.joblib'
+    MODEL_METADATA_PATH: str = 'app/models/model_metadata.json'
     PREDICTION_CACHE_TTL_SECONDS: int = 3600
 
     RATE_LIMIT_REQUESTS: int = 60
