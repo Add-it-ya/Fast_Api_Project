@@ -52,6 +52,22 @@ class PredictionRepository:
         await self._session.commit()
         return prediction
 
+    async def history(self, *, company: str, year: int, limit: int, offset: int) -> list[Prediction]:
+        """Most recent predictions for a company and model year.
+
+        The equality filters and the sort are served by one composite index on
+        (company, year, created_at DESC) - see docs/query_optimisation.md.
+        """
+        statement = (
+            select(Prediction)
+            .where(Prediction.company == company, Prediction.year == year)
+            .order_by(Prediction.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
+
     async def log_many(self, rows: list[dict]) -> int:
         """Insert a batch of prediction rows in a single statement.
 

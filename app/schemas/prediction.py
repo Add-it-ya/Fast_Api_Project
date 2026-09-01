@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -83,3 +85,24 @@ class CarFeatures(BaseModel):
 class PredictionResponse(BaseModel):
     predicted_price: str
     cached: bool
+
+
+class PredictionRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company: str
+    year: int
+    fuel: str
+    transmission: str
+    km_driven: float
+    predicted_price: Decimal
+    cache_hit: bool
+    created_at: datetime
+
+
+class PredictionHistory(BaseModel):
+    company: str
+    year: int
+    count: int
+    items: list[PredictionRecord]
