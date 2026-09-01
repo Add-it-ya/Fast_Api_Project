@@ -15,7 +15,7 @@ from app.services.drift import monitor
 from app.services.model_registry import load_bundle
 from app.services.prediction_writer import writer
 
-configure_logging()
+configure_logging(fmt=settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 

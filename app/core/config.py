@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # 'json' for shippable structured logs, 'text' when reading them by eye.
+    LOG_FORMAT: str = 'json'
+
     MODEL_PATH: str = 'app/models/model.joblib'
     MODEL_METADATA_PATH: str = 'app/models/model_metadata.json'
     PREDICTION_CACHE_TTL_SECONDS: int = 3600

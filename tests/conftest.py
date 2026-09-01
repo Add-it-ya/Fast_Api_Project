@@ -19,6 +19,15 @@ os.environ['REDIS_URL'] = f'{_redis}/1'
 os.environ.setdefault('API_KEY', 'test-api-key-value')
 os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-key-of-at-least-32-chars')
 
+# Tests run in one process, so metrics use the default registry. The
+# multiprocess directory is created by the container entrypoint, which pytest
+# does not go through - leaving the variable set makes prometheus_client look
+# for files nobody created.
+os.environ.pop('PROMETHEUS_MULTIPROC_DIR', None)
+
+# Readable tracebacks beat structured logs when a test fails.
+os.environ.setdefault('LOG_FORMAT', 'text')
+
 import asyncio
 
 import asyncpg
