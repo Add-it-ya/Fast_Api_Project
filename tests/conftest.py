@@ -33,6 +33,7 @@ from app.core.config import settings
 from app.db.models import Base
 from app.db.session import engine
 from app.main import app
+from app.services.prediction_writer import writer
 
 VALID_CAR = {
     'company': 'Maruti',
@@ -95,9 +96,22 @@ def prepare_database(event_loop):
 @pytest.fixture(autouse=True)
 async def reset_state():
     yield
+    # Drain the writer first, or rows queued by this test land in the next one.
+    await writer.flush_now()
     async with engine.begin() as conn:
         await conn.execute(text('TRUNCATE predictions, users RESTART IDENTITY CASCADE'))
     await get_redis().flushdb()
+
+
+@pytest.fixture
+def flush_predictions():
+    """Predictions are written by a batching background consumer, so a test
+    that asserts on rows has to drain the queue first."""
+
+    async def _flush():
+        await writer.flush_now()
+
+    return _flush
 
 
 @pytest.fixture(scope='session')

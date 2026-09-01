@@ -7,7 +7,6 @@ import pandas as pd
 
 from app.cache.redis_cache import build_cache_key, get_cached_prediction, set_cached_prediction
 from app.core.exceptions import ModelUnavailableError
-from app.db.repositories import PredictionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +32,10 @@ def _run_inference(model, features: dict) -> float:
 
 
 class PredictionService:
-    def __init__(self, model, predictions: PredictionRepository):
+    def __init__(self, model):
         self._model = model
-        self._predictions = predictions
 
-    async def predict(self, features: dict, user_id: int | None) -> tuple[float, bool]:
+    async def predict(self, features: dict) -> tuple[float, bool]:
         if self._model is None:
             raise ModelUnavailableError()
 
@@ -55,10 +53,4 @@ class PredictionService:
             price = cached
             cache_hit = True
 
-        await self._predictions.log(
-            user_id=user_id,
-            features=features,
-            predicted_price=price,
-            cache_hit=cache_hit,
-        )
         return price, cache_hit

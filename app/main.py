@@ -9,13 +9,12 @@ from app.api import routes_auth, routes_health, routes_predict
 from app.cache.redis_cache import close_redis
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
+from app.core.logging_config import configure_logging, shutdown_logging
 from app.db.session import engine
 from app.middleware.logging_middleware import LoggingMiddleware
+from app.services.prediction_writer import writer
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -30,10 +29,14 @@ async def lifespan(app: FastAPI):
         app.state.model = None
         logger.exception('Failed to load model from %s', settings.MODEL_PATH)
 
+    writer.start()
+
     yield
 
+    await writer.stop()
     await close_redis()
     await engine.dispose()
+    shutdown_logging()
 
 
 app = FastAPI(title=settings.PROJECT_NAME, version='2.0.0', lifespan=lifespan)

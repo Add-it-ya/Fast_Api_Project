@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import get_current_user, get_prediction_service, require_api_key
+from app.core.dependencies import (
+    Principal,
+    get_current_principal,
+    get_prediction_service,
+    require_api_key,
+)
 from app.core.rate_limit import enforce_rate_limit
-from app.db.models import User
 from app.schemas.prediction import CarFeatures, PredictionResponse
 from app.services.model_service import PredictionService
+from app.services.prediction_writer import writer
 
 router = APIRouter()
 
@@ -16,8 +21,11 @@ router = APIRouter()
 )
 async def predict_price(
     car: CarFeatures,
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
     service: PredictionService = Depends(get_prediction_service),
 ):
-    price, cache_hit = await service.predict(car.model_dump(), user_id=user.id)
+    features = car.model_dump()
+    price, cache_hit = await service.predict(features)
+
+    writer.enqueue({**features, 'user_id': principal.id, 'predicted_price': price, 'cache_hit': cache_hit})
     return PredictionResponse(predicted_price=f'{price:,.2f}', cached=cache_hit)

@@ -37,8 +37,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 60
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # Sized per worker process. PostgreSQL defaults to max_connections=100, so
+    # WEB_CONCURRENCY * (DB_POOL_SIZE + DB_MAX_OVERFLOW) must stay under it -
+    # exceeding it surfaces as asyncpg TooManyConnectionsError under load.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
 
     @field_validator('JWT_SECRET_KEY', 'API_KEY')
     @classmethod

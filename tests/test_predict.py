@@ -21,8 +21,9 @@ async def test_second_identical_request_is_served_from_cache(client, auth_header
     assert first.json()['predicted_price'] == second.json()['predicted_price']
 
 
-async def test_prediction_is_logged_to_the_database(client, auth_headers, valid_car):
+async def test_prediction_is_logged_to_the_database(client, auth_headers, valid_car, flush_predictions):
     await client.post('/predict', json=valid_car, headers=auth_headers)
+    await flush_predictions()
 
     async with engine.connect() as conn:
         row = (
@@ -38,9 +39,10 @@ async def test_prediction_is_logged_to_the_database(client, auth_headers, valid_
     assert row.user_id is not None
 
 
-async def test_cache_hits_are_recorded_separately(client, auth_headers, valid_car):
+async def test_cache_hits_are_recorded_separately(client, auth_headers, valid_car, flush_predictions):
     await client.post('/predict', json=valid_car, headers=auth_headers)
     await client.post('/predict', json=valid_car, headers=auth_headers)
+    await flush_predictions()
 
     async with engine.connect() as conn:
         hits = await conn.scalar(text('SELECT count(*) FROM predictions WHERE cache_hit'))

@@ -12,6 +12,8 @@ services:
       # Raised well above the production default (60/min) so the bundled load
       # test measures the prediction path rather than the rate limiter.
       - RATE_LIMIT_REQUESTS=1000000
+      # 4 x (pool 5 + overflow 10) = 60 connections, under postgres' 100.
+      - WEB_CONCURRENCY=4
     depends_on:
       postgres:
         condition: service_healthy

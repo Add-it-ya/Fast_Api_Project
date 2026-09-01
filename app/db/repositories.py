@@ -5,7 +5,7 @@ session or build a statement themselves, which is what keeps the API, business
 and data-access layers genuinely separate rather than nominally so.
 """
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Prediction, User
@@ -51,3 +51,14 @@ class PredictionRepository:
         self._session.add(prediction)
         await self._session.commit()
         return prediction
+
+    async def log_many(self, rows: list[dict]) -> int:
+        """Insert a batch of prediction rows in a single statement.
+
+        One round trip and one commit for the whole batch instead of per row.
+        """
+        if not rows:
+            return 0
+        await self._session.execute(insert(Prediction), rows)
+        await self._session.commit()
+        return len(rows)
