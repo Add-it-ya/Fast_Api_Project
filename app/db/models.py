@@ -6,10 +6,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -31,6 +33,18 @@ class User(Base):
 
 class Prediction(Base):
     __tablename__ = 'predictions'
+
+    # Equality columns first, then the sort column in the order the query asks
+    # for it, so one index serves both the WHERE and the ORDER BY and the
+    # planner can drop the sort node entirely.
+    __table_args__ = (
+        Index(
+            'ix_predictions_company_year_created_at',
+            'company',
+            'year',
+            text('created_at DESC'),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(
