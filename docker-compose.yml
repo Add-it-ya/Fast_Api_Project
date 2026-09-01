@@ -24,6 +24,17 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_started
+    healthcheck:
+      # The slim runtime has no curl, and /health is liveness only - it must
+      # not fail because a dependency is down, or Docker would restart a
+      # process that is working correctly.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Migrations and loading the model happen before the port opens.
+      start_period: 40s
     networks:
       - backend
 
