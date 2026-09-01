@@ -1,8 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import text
 
 from app.cache.redis_cache import get_redis
 from app.db.session import engine
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,13 +27,13 @@ async def ready(request: Request, response: Response):
             await conn.execute(text('SELECT 1'))
         checks['database'] = True
     except Exception:
-        pass
+        logger.warning('Readiness: database unreachable', exc_info=True)
 
     try:
         await get_redis().ping()
         checks['redis'] = True
     except Exception:
-        pass
+        logger.warning('Readiness: redis unreachable', exc_info=True)
 
     checks['model'] = getattr(request.app.state, 'model', None) is not None
 
