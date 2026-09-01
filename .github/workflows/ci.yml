@@ -95,7 +95,7 @@ jobs:
       - name: Build image
         run: docker build -t car-price-api .
 
-      - name: Migrations and app import cleanly
+      - name: App imports cleanly
         run: |
           docker run --rm \
             -e DATABASE_URL=postgresql+asyncpg://u:p@localhost:5432/db \
@@ -103,3 +103,17 @@ jobs:
             -e API_KEY=ci-api-key-value \
             -e JWT_SECRET_KEY=ci-jwt-secret-key-of-at-least-32-characters \
             car-price-api python -c "import app.main; print('app imports cleanly')"
+
+      - name: Image does not run as root
+        run: |
+          uid=$(docker run --rm car-price-api id -u)
+          echo "container uid: $uid"
+          test "$uid" != "0"
+
+      - name: Report image size
+        run: |
+          bytes=$(docker image inspect car-price-api --format '{{.Size}}')
+          echo "image size $((bytes / 1048576)) MB"
+
+      - name: Dev target builds too
+        run: docker build --target dev -t car-price-api-dev .

@@ -153,6 +153,39 @@ surfaces as `asyncpg.TooManyConnectionsError` under load, not at startup.
 
 ---
 
+## 🐳 Container
+
+Multi-stage build. Compilers and headers live in the build stage and never
+reach the runtime image, which carries the virtualenv and one system library —
+`libgomp1`, the OpenMP runtime scikit-learn links against and the one thing the
+slim base is missing that the model actually needs.
+
+| | before | after |
+|---|---:|---:|
+| Base | `python:3.10` | `python:3.10-slim-bookworm`, pinned by digest |
+| Image size | 2.21 GB | **831 MB** |
+| Runs as | root | **uid 999 (`app`)** |
+| Cold start to healthy | — | ~3.9 s, including migrations |
+
+**62% smaller and unprivileged.** The base is pinned by digest so a rebuild
+months from now produces the same image rather than whatever the tag points at.
+
+The runtime user cannot write to the virtualenv, which is the point — so test
+tooling gets its own target instead of the production image being loosened to
+accommodate it:
+
+```bash
+docker build --target dev -t carprice:dev .
+docker run --rm carprice:dev pytest
+```
+
+Compose wires a healthcheck to `/health`. That endpoint is liveness only and
+deliberately does not check PostgreSQL or Redis — otherwise a database blip
+would make Docker restart an API process that is working perfectly. `/ready` is
+the one that checks dependencies.
+
+---
+
 ## 📈 Observability
 
 `docker-compose up` provisions a Grafana dashboard automatically — datasource,

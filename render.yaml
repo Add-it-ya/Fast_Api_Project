@@ -6,6 +6,23 @@ services:
     branch: main
     autoDeploy: true
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
     envVars:
       - key: MODEL_PATH
         value: app/models/model.joblib
+      # The app validates these at startup and refuses to boot without them,
+      # so a deploy missing any one of them fails fast instead of coming up
+      # with a guessable secret. sync: false means "set it in the dashboard",
+      # never in this file.
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      # One worker on the free plan. Raising this requires
+      # PROMETHEUS_MULTIPROC_DIR, or /metrics reports whichever worker answered.
+      - key: WEB_CONCURRENCY
+        value: 1
