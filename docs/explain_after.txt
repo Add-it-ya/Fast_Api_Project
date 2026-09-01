@@ -1,0 +1,16 @@
+-- PostgreSQL 16.15
+-- predictions: 1010000 rows, 226 MB
+-- index: ix_predictions_company_year_created_at btree (company, year, created_at DESC)
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT id, company, year, fuel, transmission, km_driven, predicted_price, cache_hit, created_at FROM predictions WHERE company='Maruti' AND year=2015 ORDER BY created_at DESC LIMIT 50;
+
+Limit  (cost=0.42..196.81 rows=50 width=56) (actual time=0.025..0.154 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan using ix_predictions_company_year_created_at on predictions  (cost=0.42..4599.65 rows=1171 width=56) (actual time=0.024..0.150 rows=50 loops=1)
+        Index Cond: (((company)::text = 'Maruti'::text) AND (year = 2015))
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=165
+Planning Time: 0.700 ms
+Execution Time: 0.177 ms

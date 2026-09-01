@@ -152,6 +152,52 @@ surfaces as `asyncpg.TooManyConnectionsError` under load, not at startup.
 
 ---
 
+## 🗂️ Query optimisation
+
+`GET /predictions/history` filters by company and model year and returns the
+newest first. Against 1,010,000 seeded rows (187 MB), with only a primary key on
+the table, that plan is a parallel sequential scan discarding **336,281 rows per
+worker** and then sorting the survivors.
+
+One composite index fixes both halves:
+
+```sql
+CREATE INDEX ix_predictions_company_year_created_at
+    ON predictions (company, year, created_at DESC);
+```
+
+| | before | after |
+|---|---:|---:|
+| Execution time | 26.1 ms | **0.177 ms** |
+| Buffers touched | 20,476 | **53** |
+| Plan | Parallel Seq Scan + top-N heapsort | Index Scan, no sort |
+
+**147x faster.** The equality columns lead so a b-tree descent lands on the
+matching range, and `created_at DESC` trails so the rows come back already in the
+requested order — which is what removes the sort node, not just the table scan.
+
+Full plans: [docs/explain_before.txt](docs/explain_before.txt),
+[docs/explain_after.txt](docs/explain_after.txt). Reasoning, costs and how to
+reproduce it: [docs/query_optimisation.md](docs/query_optimisation.md).
+
+### Loading the benchmark data
+
+`scripts/seed_predictions.py` bulk loads with PostgreSQL `COPY`:
+
+```bash
+python scripts/seed_predictions.py --rows 1000000 --truncate --compare
+```
+
+| method | rows/sec |
+|---|---:|
+| row-by-row `INSERT` | 1,346 |
+| `COPY` | **48,040** |
+
+**36x faster.** `--compare` times both in the same run on the same hardware, and
+row generation in Python is timed separately from the COPY itself.
+
+---
+
 ## 🧪 Running the tests
 
 The suite runs against a real PostgreSQL and Redis rather than mocks. It creates

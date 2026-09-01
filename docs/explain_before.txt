@@ -1,0 +1,27 @@
+-- PostgreSQL 16.15
+-- predictions: 1010000 rows, 187 MB
+-- indexes: primary key only
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT id, company, year, fuel, transmission, km_driven, predicted_price, cache_hit, created_at FROM predictions WHERE company='Maruti' AND year=2015 ORDER BY created_at DESC LIMIT 50;
+
+Limit  (cost=27731.30..27737.13 rows=50 width=56) (actual time=24.022..26.067 rows=50 loops=1)
+  Buffers: shared hit=14538 read=5938
+  ->  Gather Merge  (cost=27731.30..27849.14 rows=1010 width=56) (actual time=24.021..26.063 rows=50 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=14538 read=5938
+        ->  Sort  (cost=26731.28..26732.54 rows=505 width=56) (actual time=21.829..21.833 rows=41 loops=3)
+              Sort Key: created_at DESC
+              Sort Method: top-N heapsort  Memory: 35kB
+              Buffers: shared hit=14538 read=5938
+              Worker 0:  Sort Method: top-N heapsort  Memory: 36kB
+              Worker 1:  Sort Method: top-N heapsort  Memory: 35kB
+              ->  Parallel Seq Scan on predictions  (cost=0.00..26714.50 rows=505 width=56) (actual time=0.145..21.602 rows=386 loops=3)
+                    Filter: (((company)::text = 'Maruti'::text) AND (year = 2015))
+                    Rows Removed by Filter: 336281
+                    Buffers: shared hit=14464 read=5938
+Planning:
+  Buffers: shared hit=130
+Planning Time: 0.553 ms
+Execution Time: 26.116 ms
