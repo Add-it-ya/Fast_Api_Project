@@ -1,0 +1,47 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+log_level = "WARNING"
+markers = [
+    "integration: needs a live PostgreSQL and Redis",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/models/*"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+exclude = ["alembic/versions", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = ["B008"]  # FastAPI depends on function calls in argument defaults
+
+[tool.ruff.lint.per-file-ignores]
+# Test env vars must be set before the app is imported.
+"tests/conftest.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+exclude = ["alembic/", "tests/", "training/"]
+
+[tool.bandit]
+exclude_dirs = ["tests", "notebooks", "alembic"]
