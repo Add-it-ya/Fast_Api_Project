@@ -1,8 +1,9 @@
 services:
   - type: web
     name: fastapi-car-price-api
-    env: docker
+    runtime: docker
     plan: free
+    region: singapore
     branch: main
     autoDeploy: true
     dockerfilePath: ./Dockerfile
@@ -26,3 +27,13 @@ services:
       # PROMETHEUS_MULTIPROC_DIR, or /metrics reports whichever worker answered.
       - key: WEB_CONCURRENCY
         value: 1
+      # A reachable instance should not let whoever finds the URL create
+      # accounts in it; closed, /register needs the API key.
+      - key: ALLOW_PUBLIC_REGISTRATION
+        value: false
+      # Free managed PostgreSQL allows far fewer connections than a local one,
+      # and a 512 MB instance cannot afford idle ones either.
+      - key: DB_POOL_SIZE
+        value: 2
+      - key: DB_MAX_OVERFLOW
+        value: 3
