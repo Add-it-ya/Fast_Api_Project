@@ -1,9 +1,40 @@
 from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_SECRETS = {'secret', 'changeme', 'change-me', 'password', 'demo', 'test'}
+
+# libpq understands these; asyncpg does not, and raises on the ones it cannot
+# map. sslmode has an asyncpg equivalent (ssl), channel_binding has none.
+LIBPQ_ONLY_PARAMS = {'channel_binding'}
+
+
+def normalise_database_url(url: str) -> str:
+    """Accept the connection string a managed PostgreSQL actually hands out.
+
+    Hosted providers give you a libpq URL - `postgresql://` with
+    `sslmode=require` - which asyncpg cannot use as written. Rewriting it here
+    means a deployment pastes the provider's string unedited rather than
+    hand-editing a DSN in a dashboard, which is where typos live.
+    """
+    parts = urlsplit(url)
+
+    scheme = parts.scheme
+    if scheme in ('postgres', 'postgresql'):
+        scheme = 'postgresql+asyncpg'
+
+    if scheme != 'postgresql+asyncpg':
+        return url
+
+    query = [
+        ('ssl' if key == 'sslmode' else key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key not in LIBPQ_ONLY_PARAMS
+    ]
+
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -31,6 +62,11 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # Open sign-up is right for a local stack and wrong for a reachable one:
+    # anyone who finds the URL can create accounts in it. Set this false and
+    # /register carries the same API key as every other write endpoint.
+    ALLOW_PUBLIC_REGISTRATION: bool = True
+
     # 'json' for shippable structured logs, 'text' when reading them by eye.
     LOG_FORMAT: str = 'json'
 
@@ -46,6 +82,11 @@ class Settings(BaseSettings):
     # exceeding it surfaces as asyncpg TooManyConnectionsError under load.
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
+
+    @field_validator('DATABASE_URL')
+    @classmethod
+    def use_the_async_driver(cls, value: str) -> str:
+        return normalise_database_url(value)
 
     @field_validator('JWT_SECRET_KEY', 'API_KEY')
     @classmethod
