@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.db.session import engine
 
 
@@ -79,3 +80,19 @@ async def test_me_returns_the_authenticated_user(client, token):
     response = await client.get('/me', headers={'Authorization': f'Bearer {token}'})
     assert response.status_code == 200
     assert response.json()['username'] == 'tester'
+
+
+async def test_public_registration_can_be_closed(client, monkeypatch):
+    monkeypatch.setattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False)
+    response = await client.post('/register', json={'username': 'alice', 'password': 'a-good-password'})
+    assert response.status_code == 401
+
+
+async def test_closed_registration_still_accepts_the_api_key(client, monkeypatch):
+    monkeypatch.setattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False)
+    response = await client.post(
+        '/register',
+        json={'username': 'alice', 'password': 'a-good-password'},
+        headers={'api-key': settings.API_KEY},
+    )
+    assert response.status_code == 201

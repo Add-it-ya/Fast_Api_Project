@@ -48,6 +48,19 @@ async def require_api_key(api_key: str | None = Depends(api_key_scheme)) -> str:
     return api_key
 
 
+async def allow_registration(api_key: str | None = Depends(api_key_scheme)) -> None:
+    """Public sign-up, unless the deployment has closed it.
+
+    Closed, /register needs the API key like every other write endpoint, so a
+    reachable instance cannot have accounts created in it by whoever finds the
+    URL. The check is per request rather than at startup so the same image
+    serves an open local stack and a closed deployed one.
+    """
+    if settings.ALLOW_PUBLIC_REGISTRATION:
+        return
+    await require_api_key(api_key)
+
+
 def _claims(credentials: HTTPAuthorizationCredentials | None) -> dict:
     if credentials is None:
         raise InvalidTokenError('Missing bearer token')
