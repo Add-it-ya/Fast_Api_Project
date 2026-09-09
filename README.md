@@ -495,12 +495,37 @@ throughput *worse* until the connection pool was resized.
 
 ---
 
-## 🚀 Deployment on Render (API only)
+## 🚀 Deployment on Render
 
-1. Push code to GitHub
-2. Add render.yaml to the project root
-3. Create a new Web Service on Render
-4. Include environment variables
+`render.yaml` is a Blueprint: it declares the API, a managed PostgreSQL and a
+Key Value (Redis-compatible) cache, and wires the connection strings between
+them. All three fit on Render's free plan.
+
+1. Push this repository to GitHub.
+2. On [Render](https://dashboard.render.com), choose **New > Blueprint** and
+   pick the repository. Render reads `render.yaml` and lists the three
+   resources it is about to create; approve them.
+3. Wait for the first Docker build (roughly 5-10 minutes). The container runs
+   `alembic upgrade head` before starting uvicorn, so the schema is created on
+   the first boot.
+4. Read the generated `API_KEY` from the web service's **Environment** tab.
+   Every write endpoint needs it, including `/register`, because
+   `ALLOW_PUBLIC_REGISTRATION` is false on a publicly reachable instance.
+
+Interactive docs live at `https://<your-service>.onrender.com/docs`, and
+`/ready` reports whether the database, the cache and the model are all up.
+
+What the free plan costs you:
+
+| Limit | Effect |
+| --- | --- |
+| Web service sleeps after 15 minutes idle | First request afterwards takes about a minute |
+| Free PostgreSQL expires 30 days after creation | Recreate it, or point `DATABASE_URL` at another provider |
+| Key Value holds nothing across restarts | Harmless - it is only a cache |
+| 512 MB RAM, one instance | `WEB_CONCURRENCY=1`, small connection pool |
+
+Grafana, Prometheus and the training stack are not part of the deployment; they
+stay in `docker-compose.yml` for local use.
 
 ---
 

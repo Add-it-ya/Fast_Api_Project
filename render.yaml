@@ -1,4 +1,30 @@
+# Render Blueprint. Creating this as a Blueprint (New > Blueprint) provisions
+# the API, its database and its cache together and wires the connection strings
+# between them, so the only thing left to do by hand is nothing.
+#
+# Free-plan caveats worth knowing before showing this to anyone:
+#   - the web service sleeps after 15 minutes idle; the next request pays a
+#     cold start of roughly a minute,
+#   - a free Postgres expires 30 days after it is created,
+#   - a free Key Value instance holds no data across restarts, which is fine
+#     for a cache and would not be for anything else.
+
+databases:
+  - name: carprice-db
+    plan: free
+    region: singapore
+    databaseName: carprice
+    user: carprice
+
 services:
+  - type: keyvalue
+    name: carprice-cache
+    plan: free
+    region: singapore
+    # Empty list: reachable from services inside this Render account and from
+    # nowhere on the public internet. The API connects over the private network.
+    ipAllowList: []
+
   - type: web
     name: fastapi-car-price-api
     runtime: docker
@@ -13,16 +39,21 @@ services:
         value: app/models/model.joblib
       # The app validates these at startup and refuses to boot without them,
       # so a deploy missing any one of them fails fast instead of coming up
-      # with a guessable secret. sync: false means "set it in the dashboard",
-      # never in this file.
+      # with a guessable secret. generateValue makes Render mint a random
+      # 256-bit value on first deploy - readable in the dashboard, never here.
       - key: JWT_SECRET_KEY
-        sync: false
+        generateValue: true
       - key: API_KEY
-        sync: false
+        generateValue: true
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: carprice-db
+          property: connectionString
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: keyvalue
+          name: carprice-cache
+          property: connectionString
       # One worker on the free plan. Raising this requires
       # PROMETHEUS_MULTIPROC_DIR, or /metrics reports whichever worker answered.
       - key: WEB_CONCURRENCY
