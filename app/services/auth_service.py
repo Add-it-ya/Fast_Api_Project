@@ -1,4 +1,12 @@
-"""Business logic for registration and login."""
+"""Business logic for registration and login.
+
+bcrypt is slow on purpose - that is what makes a stolen hash expensive to
+crack - so every hash and verify runs in a worker thread. Called directly from
+an async handler it would block the event loop, and every other request on
+the worker, for the whole of each call.
+"""
+
+import asyncio
 
 from app.core.config import settings
 from app.core.exceptions import InvalidCredentialsError, UserAlreadyExistsError
@@ -14,7 +22,8 @@ class AuthService:
     async def register(self, username: str, password: str) -> User:
         if await self._users.get_by_username(username) is not None:
             raise UserAlreadyExistsError()
-        return await self._users.create(username, hash_password(password))
+        hashed = await asyncio.to_thread(hash_password, password)
+        return await self._users.create(username, hashed)
 
     async def authenticate(self, username: str, password: str) -> tuple[str, int]:
         user = await self._users.get_by_username(username)
@@ -22,10 +31,10 @@ class AuthService:
         # Verify against a dummy hash when the user is missing so the response
         # time does not reveal which usernames exist.
         if user is None:
-            hash_password('not-a-real-password')
+            await asyncio.to_thread(hash_password, 'not-a-real-password')
             raise InvalidCredentialsError()
 
-        if not verify_password(password, user.hashed_password):
+        if not await asyncio.to_thread(verify_password, password, user.hashed_password):
             raise InvalidCredentialsError()
 
         token = create_access_token(subject=user.username, user_id=user.id)

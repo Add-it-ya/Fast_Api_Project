@@ -9,7 +9,10 @@ this suite - throughput is the only symptom - so it is asserted here.
 import asyncio
 import time
 
+import pytest
+
 from app.core.config import settings
+from app.core.security import hash_password
 from app.main import app
 
 # Inference is made slow enough to dominate the per-request work that genuinely
@@ -79,3 +82,50 @@ async def test_event_loop_stays_responsive_during_inference(client, auth_headers
         'the event loop is blocked during inference.'
     )
     await prediction
+
+
+@pytest.mark.parametrize(
+    'path,credentials',
+    [
+        ('/register', {'username': 'newcomer', 'password': 'test-password-1'}),
+        ('/login', {'username': 'tester', 'password': 'test-password-1'}),
+        # Unknown users are hashed against a dummy so timing does not reveal
+        # which usernames exist; that hash must not block either.
+        ('/login', {'username': 'nobody', 'password': 'test-password-1'}),
+    ],
+)
+async def test_event_loop_stays_responsive_during_password_hashing(
+    client, registered_user, path, credentials
+):
+    """bcrypt is slow on purpose. Run on the event loop, one login would stall
+    every other request in the worker for its whole duration.
+
+    A heartbeat ticks every few milliseconds while the request runs. If the
+    loop is blocked, the longest gap between ticks is the whole bcrypt call.
+    """
+    started = time.perf_counter()
+    hash_password('calibration-password')
+    bcrypt_seconds = time.perf_counter() - started
+
+    gaps: list[float] = []
+    finished = asyncio.Event()
+
+    async def heartbeat():
+        last = time.perf_counter()
+        while not finished.is_set():
+            await asyncio.sleep(0.005)
+            now = time.perf_counter()
+            gaps.append(now - last)
+            last = now
+
+    beat = asyncio.create_task(heartbeat())
+    try:
+        await client.post(path, json=credentials)
+    finally:
+        finished.set()
+        await beat
+
+    assert max(gaps) < bcrypt_seconds / 2, (
+        f'the event loop stalled for {max(gaps):.3f}s during {path}, against '
+        f'{bcrypt_seconds:.3f}s for one bcrypt hash - hashing is blocking the loop.'
+    )
