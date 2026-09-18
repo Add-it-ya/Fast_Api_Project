@@ -43,7 +43,10 @@ def get_prediction_repository(session: AsyncSession = Depends(get_session)) -> P
 
 
 async def require_api_key(api_key: str | None = Depends(api_key_scheme)) -> str:
-    if not api_key or not secrets.compare_digest(api_key, settings.API_KEY):
+    # Compared as bytes: compare_digest raises TypeError on a str holding any
+    # non-ASCII character, and header values arrive decoded as latin-1, so a
+    # single byte over 0x7f in the header would otherwise be a 500, not a 401.
+    if not api_key or not secrets.compare_digest(api_key.encode(), settings.API_KEY.encode()):
         raise InvalidApiKeyError()
     return api_key
 

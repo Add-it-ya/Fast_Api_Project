@@ -80,3 +80,14 @@ async def test_malformed_bearer_token_is_rejected(client, valid_car):
     )
     assert response.status_code == 401
     assert response.json()['detail'] == 'Invalid or expired token'
+
+
+async def test_a_non_ascii_api_key_is_rejected_not_crashed(client, token, valid_car):
+    # Header values arrive decoded as latin-1, so any byte over 0x7f becomes a
+    # non-ASCII character - which secrets.compare_digest refuses for str.
+    response = await client.post(
+        '/predict',
+        json=valid_car,
+        headers={'Authorization': f'Bearer {token}', 'api-key': 'clé-invalide'.encode()},
+    )
+    assert response.status_code == 401
