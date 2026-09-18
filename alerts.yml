@@ -72,6 +72,19 @@ groups:
             their token was still valid. write_failed: the database could not
             be reached at all.
 
+      - alert: RedisDegraded
+        # The cache and the rate limiter both fail open, so a Redis outage does
+        # not show up as errors on any request. It shows up here instead.
+        expr: sum(rate(redis_errors_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis is failing; running without the cache or rate limits'
+          description: >-
+            Every prediction is a model call and nothing is being throttled
+            until Redis returns. /ready reports which dependency is down.
+
       - alert: PredictionLogQueueBacklog
         expr: prediction_log_queue_depth > 5000
         for: 10m

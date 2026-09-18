@@ -7,8 +7,9 @@ when the API runs more than one replica.
 import time
 
 from fastapi import Request
+from redis.exceptions import RedisError
 
-from app.cache.redis_cache import get_redis
+from app.cache.redis_cache import get_redis, record_redis_error
 from app.core.config import settings
 from app.core.exceptions import RateLimitExceededError
 from app.core.security import decode_access_token
@@ -46,10 +47,18 @@ async def enforce_rate_limit(request: Request) -> None:
 
     # One round trip instead of two. The key already embeds the time bucket, so
     # refreshing the TTL on every hit cannot extend the window.
-    async with get_redis().pipeline(transaction=False) as pipe:
-        pipe.incr(key)
-        pipe.expire(key, window * 2)
-        count, _ = await pipe.execute()
+    try:
+        async with get_redis().pipeline(transaction=False) as pipe:
+            pipe.incr(key)
+            pipe.expire(key, window * 2)
+            count, _ = await pipe.execute()
+    except RedisError:
+        # Fail open. The counters are the only thing lost with Redis, and
+        # refusing every login and prediction to protect them would turn a
+        # cache outage into a full one. /ready and redis_errors_total still
+        # show the outage, and an alert fires on the counter.
+        record_redis_error('rate_limit')
+        return
 
     if count > settings.RATE_LIMIT_REQUESTS:
         raise RateLimitExceededError(

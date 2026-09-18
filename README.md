@@ -66,7 +66,7 @@ after the response is sent, so the commit is off the request path
 - 🔐 **Authentication**: JWT token auth + API key header, bcrypt-hashed passwords (passlib)
 - 🧠 **ML Model Prediction**: Trained model predicts used car prices
 - 🚀 **Redis Caching**: Avoid redundant model computation, async client
-- 📈 **Monitoring**: provisioned Grafana dashboard (11 panels), 7 Prometheus alert rules, custom ML metrics, JSON logs with request-id correlation
+- 📈 **Monitoring**: provisioned Grafana dashboard (11 panels), 8 Prometheus alert rules, custom ML metrics, JSON logs with request-id correlation
 - 🐳 **Dockerized Setup**: Simplified deployment with Docker Compose
 - ☁️ **Cloud Deployment**: Easily deploy to [Render](https://render.com)
 - 🧪 **Load test included**: `scripts/load_test.py` measures p50/p95/p99 latency under configurable concurrency
@@ -279,13 +279,14 @@ measures the hit ratio rather than anything about the service.
 | `model_live_mae` | Is the model still right, against reported outcomes? |
 | `prediction_log_rows_written_total` / `_dropped_total` / `_queue_depth` | Is the async writer keeping up? |
 | `model_version`, `model_sklearn_version_match` | Which model is loaded, and is it safe to load? |
+| `redis_errors_total{operation}` | Is Redis down while the service carries on without it? |
 
 ### Alerts
 
-Seven rules in `alerts.yml`, loaded by Prometheus and visible at
+Eight rules in `alerts.yml`, loaded by Prometheus and visible at
 http://localhost:9090/alerts: API down, 5xx over 1%, prediction p95 over 500 ms,
 cache hit ratio collapsed under 20%, feature drift PSI over 0.25, prediction log
-shedding, and write-queue backlog.
+rows lost, Redis failing, and write-queue backlog.
 
 ### Structured logs
 
@@ -488,8 +489,11 @@ throughput *worse* until the connection pool was resized.
   inherent to stateless JWT.
 - **Drift state is per-worker and in memory.** Prometheus sees one series per
   worker; alert on the maximum, not on a single number.
-- **A Redis outage fails predictions** rather than degrading to a direct model
-  call. The cache is on the read path and is not currently optional.
+- **A Redis outage switches off rate limiting.** The cache and the limiter
+  both fail open: predictions fall back to the model, and nothing is throttled
+  until Redis returns. That keeps login and prediction available, at the cost
+  of one layer of abuse protection. `/ready` reports it, `redis_errors_total`
+  counts it, and the `RedisDegraded` alert fires on it.
 - **Single-region, single-host.** No horizontal scaling story, no load balancer,
   no live deployment.
 

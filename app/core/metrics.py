@@ -37,3 +37,9 @@ PREDICTION_VALUE = Histogram(
     'Distribution of predicted prices, to catch the model drifting as a whole',
     buckets=(1e5, 2.5e5, 5e5, 7.5e5, 1e6, 1.5e6, 2e6, 3e6, 5e6, 1e7),
 )
+
+REDIS_ERRORS = Counter(
+    'redis_errors_total',
+    'Redis failures the service degraded around instead of failing the request',
+    ['operation'],
+)
