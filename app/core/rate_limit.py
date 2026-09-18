@@ -11,20 +11,38 @@ from fastapi import Request
 from app.cache.redis_cache import get_redis
 from app.core.config import settings
 from app.core.exceptions import RateLimitExceededError
+from app.core.security import decode_access_token
 
 
 def _client_id(request: Request) -> str:
-    api_key = request.headers.get('api-key')
-    if api_key:
-        return f'key:{api_key[:16]}'
+    """Who this request is counted against.
+
+    Only a verified identity decides the bucket. The API key is the same for
+    every caller, so keying on it made all users share one budget; and /login
+    never checks it, so keying on whatever the header said handed out a fresh
+    budget for every forged value. A forged bearer token fails signature
+    verification here and falls through to the client address.
+    """
+    scheme, _, token = request.headers.get('authorization', '').partition(' ')
+    if scheme.lower() == 'bearer' and token:
+        claims = decode_access_token(token)
+        if claims and isinstance(claims.get('uid'), int):
+            return f'user:{claims["uid"]}'
     client = request.client
     return f'ip:{client.host if client else "unknown"}'
+
+
+def _route_path(request: Request) -> str:
+    """The route template, so /predictions/1/actual and /predictions/2/actual
+    share a budget instead of each id getting its own."""
+    route = request.scope.get('route')
+    return getattr(route, 'path', request.url.path)
 
 
 async def enforce_rate_limit(request: Request) -> None:
     window = settings.RATE_LIMIT_WINDOW_SECONDS
     bucket = int(time.time() // window)
-    key = f'ratelimit:{_client_id(request)}:{request.url.path}:{bucket}'
+    key = f'ratelimit:{_client_id(request)}:{_route_path(request)}:{bucket}'
 
     # One round trip instead of two. The key already embeds the time bucket, so
     # refreshing the TTL on every hit cannot extend the window.
