@@ -59,15 +59,18 @@ groups:
             before any accuracy metric shows it.
 
       - alert: PredictionLogShedding
-        expr: rate(prediction_log_rows_dropped_total[5m]) > 0
+        expr: sum by (reason) (rate(prediction_log_rows_dropped_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: 'Prediction log rows are being dropped'
+          summary: 'Prediction log rows are being dropped ({{ $labels.reason }})'
           description: >-
-            The write queue is full, so rows are being shed to keep the request
-            path fast. The database is not keeping up with prediction volume.
+            queue_full: rows are being shed to keep the request path fast, so
+            the database is not keeping up with prediction volume. rejected:
+            the database refused individual rows, usually a user deleted while
+            their token was still valid. write_failed: the database could not
+            be reached at all.
 
       - alert: PredictionLogQueueBacklog
         expr: prediction_log_queue_depth > 5000
