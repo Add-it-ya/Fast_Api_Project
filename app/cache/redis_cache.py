@@ -29,10 +29,13 @@ async def close_redis() -> None:
         _redis = None
 
 
-def build_cache_key(features: dict) -> str:
+def build_cache_key(features: dict, model_version: int | None) -> str:
     payload = json.dumps(features, sort_keys=True, separators=(',', ':'))
     digest = hashlib.sha256(payload.encode()).hexdigest()[:32]
-    return f'prediction:{digest}'
+    # The model version is part of the key, so a retrained model starts with a
+    # cold cache instead of its predecessor answering for it until the TTL runs
+    # out.
+    return f'prediction:v{model_version or 0}:{digest}'
 
 
 async def get_cached_prediction(key: str) -> float | None:

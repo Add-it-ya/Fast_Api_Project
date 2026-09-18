@@ -82,6 +82,25 @@ async def test_malformed_bearer_token_is_rejected(client, valid_car):
     assert response.json()['detail'] == 'Invalid or expired token'
 
 
+async def test_a_retrained_model_is_not_answered_from_the_old_cache(client, auth_headers, valid_car):
+    from app.main import app
+    from app.services.model_registry import ModelBundle
+
+    await client.post('/predict', json=valid_car, headers=auth_headers)
+    assert (await client.post('/predict', json=valid_car, headers=auth_headers)).json()['cached'] is True
+
+    current = app.state.model_bundle
+    app.state.model_bundle = ModelBundle(
+        pipeline=current.pipeline, metadata={**current.metadata, 'version': (current.version or 0) + 1}
+    )
+    try:
+        after_retrain = await client.post('/predict', json=valid_car, headers=auth_headers)
+    finally:
+        app.state.model_bundle = current
+
+    assert after_retrain.json()['cached'] is False
+
+
 async def test_a_non_ascii_api_key_is_rejected_not_crashed(client, token, valid_car):
     # Header values arrive decoded as latin-1, so any byte over 0x7f becomes a
     # non-ASCII character - which secrets.compare_digest refuses for str.

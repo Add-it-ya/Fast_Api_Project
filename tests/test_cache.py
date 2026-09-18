@@ -8,12 +8,17 @@ from app.cache.redis_cache import (
 
 def test_key_is_independent_of_field_order(valid_car):
     reversed_order = dict(reversed(list(valid_car.items())))
-    assert build_cache_key(valid_car) == build_cache_key(reversed_order)
+    assert build_cache_key(valid_car, 3) == build_cache_key(reversed_order, 3)
 
 
 def test_different_features_produce_different_keys(valid_car):
     other = valid_car | {'km_driven': valid_car['km_driven'] + 1}
-    assert build_cache_key(valid_car) != build_cache_key(other)
+    assert build_cache_key(valid_car, 3) != build_cache_key(other, 3)
+
+
+def test_a_new_model_version_gets_new_keys(valid_car):
+    """A retrained model must not be answered for by its predecessor's cache."""
+    assert build_cache_key(valid_car, 3) != build_cache_key(valid_car, 4)
 
 
 async def test_round_trip_preserves_the_value():

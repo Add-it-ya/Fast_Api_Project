@@ -34,14 +34,15 @@ def _run_inference(model, features: dict) -> float:
 
 
 class PredictionService:
-    def __init__(self, model):
+    def __init__(self, model, model_version: int | None = None):
         self._model = model
+        self._model_version = model_version
 
     async def predict(self, features: dict) -> tuple[float, bool]:
         if self._model is None:
             raise ModelUnavailableError()
 
-        cache_key = build_cache_key(features)
+        cache_key = build_cache_key(features, self._model_version)
         cached = await get_cached_prediction(cache_key)
 
         if cached is None:

@@ -105,4 +105,8 @@ def get_auth_service(users: UserRepository = Depends(get_user_repository)) -> Au
 
 
 def get_prediction_service(request: Request) -> PredictionService:
-    return PredictionService(getattr(request.app.state, 'model', None))
+    bundle = getattr(request.app.state, 'model_bundle', None)
+    return PredictionService(
+        getattr(request.app.state, 'model', None),
+        model_version=bundle.version if bundle is not None else None,
+    )
