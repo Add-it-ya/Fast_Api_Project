@@ -126,10 +126,9 @@ async def main() -> None:
         login = await client.post('/login', json=credentials)
         if login.status_code != 200:
             raise SystemExit(f'login failed: {login.status_code} {login.text}')
-        headers = {
-            'Authorization': f'Bearer {login.json()["access_token"]}',
-            'api-key': API_KEY,
-        }
+        headers = {'Authorization': f'Bearer {login.json()["access_token"]}'}
+        # Forcing a drift recompute is an operator action.
+        operator = {'api-key': API_KEY}
 
         info = await client.get('/model/info')
         if info.status_code != 200:
@@ -149,12 +148,18 @@ async def main() -> None:
         in_dist = [sample_in_distribution(reference, rng) for _ in range(args.batch)]
         print(f'\nsending {args.batch} requests drawn from the training distribution...')
         await send(client, headers, in_dist)
-        render('after in-distribution traffic:', (await client.get('/model/drift?recompute=true')).json())
+        render(
+            'after in-distribution traffic:',
+            (await client.get('/model/drift?recompute=true', headers=operator)).json(),
+        )
 
         shifted = [sample_shifted(rng) for _ in range(args.batch * 4)]
         print(f'\nsending {len(shifted)} requests skewed to newer luxury cars...')
         await send(client, headers, shifted)
-        render('after shifted traffic:', (await client.get('/model/drift?recompute=true')).json())
+        render(
+            'after shifted traffic:',
+            (await client.get('/model/drift?recompute=true', headers=operator)).json(),
+        )
 
 
 if __name__ == '__main__':

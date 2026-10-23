@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, Query, Request
 from prometheus_client import Gauge
 
-from app.core.dependencies import Principal, get_current_principal, get_prediction_repository
+from app.core.dependencies import (
+    Principal,
+    api_key_scheme,
+    get_current_principal,
+    get_prediction_repository,
+    require_api_key,
+)
 from app.core.exceptions import ModelUnavailableError
 from app.db.repositories import PredictionRepository
 from app.schemas.model import DriftReport, ModelInfo, ModelPerformance
@@ -36,12 +42,20 @@ async def model_info(request: Request):
 
 
 @router.get('/model/drift', response_model=DriftReport)
-async def model_drift(recompute: bool = Query(default=False)):
+async def model_drift(
+    recompute: bool = Query(default=False),
+    api_key: str | None = Depends(api_key_scheme),
+):
     """Population Stability Index of live features against training.
 
     Under 0.1 is stable, 0.1-0.25 a moderate shift, above 0.25 significant.
+    Reading the last result is open; forcing a recompute costs CPU, so it
+    needs the operator key.
     """
-    return monitor.refresh() if recompute else monitor.snapshot()
+    if not recompute:
+        return monitor.snapshot()
+    await require_api_key(api_key)
+    return monitor.refresh()
 
 
 @router.get('/model/performance', response_model=ModelPerformance)

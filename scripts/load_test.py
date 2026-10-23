@@ -36,7 +36,6 @@ from app.schemas.prediction import (  # noqa: E402
 )
 
 BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
-API_KEY = os.getenv('API_KEY', 'local-dev-api-key')
 CONCURRENCY = int(os.getenv('CONCURRENCY', '100'))
 TOTAL_REQUESTS = int(os.getenv('TOTAL_REQUESTS', '1000'))
 # Size of the pool of distinct feature vectors. Smaller means more cache hits.
@@ -123,7 +122,7 @@ async def main() -> None:
     limits = httpx.Limits(max_connections=CONCURRENCY, max_keepalive_connections=CONCURRENCY)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=60.0, limits=limits) as client:
         token = await authenticate(client)
-        headers = {'Authorization': f'Bearer {token}', 'api-key': API_KEY}
+        headers = {'Authorization': f'Bearer {token}'}
 
         warmup = await client.post('/predict', json=pool[0], headers=headers)
         if warmup.status_code != 200:

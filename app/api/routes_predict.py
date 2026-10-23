@@ -31,7 +31,7 @@ router = APIRouter()
 @router.post(
     '/predict',
     response_model=PredictionResponse,
-    dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_rate_limit)],
 )
 async def predict_price(
     car: CarFeatures,
@@ -56,7 +56,7 @@ async def predict_price(
 @router.get(
     '/predictions/history',
     response_model=PredictionHistory,
-    dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_rate_limit)],
 )
 async def prediction_history(
     company: Company,
@@ -88,10 +88,14 @@ class PredictionNotFoundError(AppError):
 async def record_actual_price(
     prediction_id: int,
     body: ActualPrice,
-    _: Principal = Depends(get_current_principal),
     predictions: PredictionRepository = Depends(get_prediction_repository),
 ):
-    """Report the real sale price so the prediction can be scored."""
+    """Report the real sale price so the prediction can be scored.
+
+    An operator action, not a user one: the sale price comes from whoever
+    records the sale, and letting any user set it would let them skew the
+    live error figures.
+    """
     row = await predictions.record_actual(prediction_id, body.actual_price)
     if row is None:
         raise PredictionNotFoundError()

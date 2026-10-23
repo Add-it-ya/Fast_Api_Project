@@ -43,6 +43,8 @@ def get_prediction_repository(session: AsyncSession = Depends(get_session)) -> P
 
 
 async def require_api_key(api_key: str | None = Depends(api_key_scheme)) -> str:
+    # The API key is the operator credential. Users authenticate with a JWT;
+    # the key guards the few actions that are not a user's to take.
     # Compared as bytes: compare_digest raises TypeError on a str holding any
     # non-ASCII character, and header values arrive decoded as latin-1, so a
     # single byte over 0x7f in the header would otherwise be a 500, not a 401.

@@ -52,32 +52,24 @@ async def test_cache_hits_are_recorded_separately(client, auth_headers, valid_ca
     assert hits == 1
 
 
-async def test_missing_api_key_is_unauthorised_not_unprocessable(client, token, valid_car):
+async def test_a_user_token_is_all_a_prediction_needs(client, token, valid_car):
     response = await client.post('/predict', json=valid_car, headers={'Authorization': f'Bearer {token}'})
-    assert response.status_code == 401
-    assert response.json()['detail'] == 'Missing or invalid API key'
-
-
-async def test_wrong_api_key_is_rejected(client, token, valid_car):
-    response = await client.post(
-        '/predict',
-        json=valid_car,
-        headers={'Authorization': f'Bearer {token}', 'api-key': 'not-the-key'},
-    )
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 async def test_missing_bearer_token_is_rejected(client, valid_car):
-    response = await client.post('/predict', json=valid_car, headers={'api-key': settings.API_KEY})
+    response = await client.post('/predict', json=valid_car)
     assert response.status_code == 401
 
 
+async def test_the_operator_key_is_not_a_user_token(client, valid_car):
+    response = await client.post('/predict', json=valid_car, headers={'api-key': settings.API_KEY})
+    assert response.status_code == 401
+    assert response.json()['detail'] == 'Missing bearer token'
+
+
 async def test_malformed_bearer_token_is_rejected(client, valid_car):
-    response = await client.post(
-        '/predict',
-        json=valid_car,
-        headers={'Authorization': 'Bearer not.a.jwt', 'api-key': settings.API_KEY},
-    )
+    response = await client.post('/predict', json=valid_car, headers={'Authorization': 'Bearer not.a.jwt'})
     assert response.status_code == 401
     assert response.json()['detail'] == 'Invalid or expired token'
 
@@ -99,14 +91,3 @@ async def test_a_retrained_model_is_not_answered_from_the_old_cache(client, auth
         app.state.model_bundle = current
 
     assert after_retrain.json()['cached'] is False
-
-
-async def test_a_non_ascii_api_key_is_rejected_not_crashed(client, token, valid_car):
-    # Header values arrive decoded as latin-1, so any byte over 0x7f becomes a
-    # non-ASCII character - which secrets.compare_digest refuses for str.
-    response = await client.post(
-        '/predict',
-        json=valid_car,
-        headers={'Authorization': f'Bearer {token}', 'api-key': 'clé-invalide'.encode()},
-    )
-    assert response.status_code == 401

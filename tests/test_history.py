@@ -90,16 +90,12 @@ async def test_history_validates_query_parameters(client, auth_headers, params):
     assert response.status_code == 422
 
 
-async def test_history_requires_both_credentials(client, token):
-    only_bearer = await client.get(
-        '/predictions/history',
-        params={'company': 'Maruti', 'year': 2015},
-        headers={'Authorization': f'Bearer {token}'},
-    )
+async def test_history_needs_a_user_token(client):
+    no_token = await client.get('/predictions/history', params={'company': 'Maruti', 'year': 2015})
     only_key = await client.get(
         '/predictions/history',
         params={'company': 'Maruti', 'year': 2015},
         headers={'api-key': settings.API_KEY},
     )
-    assert only_bearer.status_code == 401
+    assert no_token.status_code == 401
     assert only_key.status_code == 401

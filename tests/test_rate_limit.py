@@ -22,7 +22,7 @@ async def _login_as(client, username: str) -> dict:
     credentials = {'username': username, 'password': 'test-password-1'}
     await client.post('/register', json=credentials)
     token = (await client.post('/login', json=credentials)).json()['access_token']
-    return {'Authorization': f'Bearer {token}', 'api-key': settings.API_KEY}
+    return {'Authorization': f'Bearer {token}'}
 
 
 async def test_requests_beyond_the_limit_are_rejected(client, auth_headers, valid_car, limit):
@@ -79,8 +79,7 @@ async def test_a_forged_token_does_not_buy_a_new_budget(client, registered_user,
 
 
 async def test_each_user_has_their_own_budget(client, valid_car, limit):
-    """Everyone sends the same API key, so it cannot be the identity - one
-    busy user would exhaust the budget of every other."""
+    """One busy user must not exhaust the budget of every other."""
     alice = await _login_as(client, 'alice')
     bob = await _login_as(client, 'bob')
     limit(2)
@@ -108,7 +107,7 @@ async def test_each_route_has_its_own_budget(client, auth_headers, valid_car, li
     assert predict.status_code == 200
 
 
-async def test_path_parameters_share_one_budget(client, auth_headers, limit):
+async def test_path_parameters_share_one_budget(client, operator_headers, limit):
     """/predictions/1/actual and /predictions/2/actual are the same endpoint.
     Counting them apart would give a caller a fresh budget per id."""
     limit(2)
@@ -116,7 +115,9 @@ async def test_path_parameters_share_one_budget(client, auth_headers, limit):
     statuses = [
         (
             await client.post(
-                f'/predictions/{prediction_id}/actual', json={'actual_price': 500000}, headers=auth_headers
+                f'/predictions/{prediction_id}/actual',
+                json={'actual_price': 500000},
+                headers=operator_headers,
             )
         ).status_code
         for prediction_id in (1, 2, 3)

@@ -158,7 +158,12 @@ async def token(client, registered_user):
 
 @pytest.fixture
 def auth_headers(token):
-    return {'Authorization': f'Bearer {token}', 'api-key': settings.API_KEY}
+    return {'Authorization': f'Bearer {token}'}
+
+
+@pytest.fixture
+def operator_headers():
+    return {'api-key': settings.API_KEY}
 
 
 @pytest.fixture

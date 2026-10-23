@@ -26,7 +26,7 @@ flowchart TB
 
     subgraph api["FastAPI · 4 uvicorn workers"]
         mw["LoggingMiddleware<br/><i>request id, JSON access log</i>"]
-        auth["Auth<br/><i>JWT bearer + API key</i>"]
+        auth["Auth<br/><i>JWT for users, API key for operators</i>"]
         rl["Rate limiter"]
         routes["<b>API layer</b><br/>routes_predict · routes_model · routes_auth"]
         services["<b>Business layer</b><br/>PredictionService · AuthService<br/>DriftMonitor · PredictionWriter"]
@@ -63,7 +63,7 @@ after the response is sent, so the commit is off the request path
 
 - ⚡ **Fully async stack**: `async def` routes, `redis.asyncio`, async SQLAlchemy 2.x, blocking ML inference offloaded with `asyncio.to_thread`
 - 🗄️ **Persistence**: User accounts and prediction logs stored in PostgreSQL 16 via async SQLAlchemy 2.x, schema managed by Alembic
-- 🔐 **Authentication**: JWT token auth + API key header, bcrypt-hashed passwords (passlib)
+- 🔐 **Authentication**: users sign in for a JWT; a separate API key guards operator actions (closed registration, reporting sale prices, forcing a drift recompute). bcrypt-hashed passwords (passlib)
 - 🧠 **ML Model Prediction**: Trained model predicts used car prices
 - 🚀 **Redis Caching**: Avoid redundant model computation, async client
 - 📈 **Monitoring**: provisioned Grafana dashboard (11 panels), 8 Prometheus alert rules, custom ML metrics, JSON logs with request-id correlation
@@ -513,8 +513,9 @@ them. All three fit on Render's free plan.
    `alembic upgrade head` before starting uvicorn, so the schema is created on
    the first boot.
 4. Read the generated `API_KEY` from the web service's **Environment** tab.
-   Every write endpoint needs it, including `/register`, because
-   `ALLOW_PUBLIC_REGISTRATION` is false on a publicly reachable instance.
+   It is the operator credential: `/register` needs it, because
+   `ALLOW_PUBLIC_REGISTRATION` is false on a publicly reachable instance, and
+   so does reporting a sale price.
 
 Interactive docs live at `https://<your-service>.onrender.com/docs`, and
 `/ready` reports whether the database, the cache and the model are all up.
