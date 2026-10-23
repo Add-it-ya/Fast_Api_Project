@@ -8,10 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 # The pipeline one-hot encodes with handle_unknown='ignore', so an unseen
 # company silently becomes an all-zero vector and the model returns a number
 # that means nothing. Constraining to the trained categories turns that quiet
-# wrong answer into a 422.
+# wrong answer into a 422. These lists are exactly what the encoder learned;
+# tests/test_validation.py fails if a retrain changes them.
 Company = Literal[
     'Ambassador',
-    'Ashok',
     'Audi',
     'BMW',
     'Chevrolet',
@@ -27,7 +27,6 @@ Company = Literal[
     'Jeep',
     'Kia',
     'Land',
-    'Lexus',
     'MG',
     'Mahindra',
     'Maruti',

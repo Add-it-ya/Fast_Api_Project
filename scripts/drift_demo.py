@@ -31,7 +31,7 @@ API_KEY = os.getenv('API_KEY', 'local-dev-api-key')
 USERNAME = os.getenv('DRIFT_DEMO_USER', 'drift-demo')
 PASSWORD = os.getenv('DRIFT_DEMO_PASSWORD', 'drift-demo-password')
 
-LUXURY = ['BMW', 'Audi', 'Mercedes-Benz', 'Jaguar', 'Volvo', 'Lexus']
+LUXURY = ['BMW', 'Audi', 'Mercedes-Benz', 'Jaguar', 'Volvo']
 
 # Near-discrete numeric features are recorded as categorical in the training
 # distribution, so their sampled values come back as strings.
