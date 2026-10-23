@@ -1,47 +1,39 @@
-# 0005. Index (company, year, created_at DESC) in that order
+# 0005. Index (user_id, created_at DESC) in that order
 
-**Status:** Accepted
+**Status:** Accepted. Replaces the earlier `(company, year, created_at DESC)`
+index, which served a version of history that searched every user's
+predictions.
 
 ## Context
 
-`GET /predictions/history` filters on company and model year and returns newest
-first. On a 1,010,000-row table with only a primary key, the plan was a parallel
-sequential scan discarding 336,281 rows per worker, then a top-N heapsort —
-26 ms and 20,476 buffers to return 50 rows.
+`GET /predictions/history` returns the caller's own predictions, newest first.
+With an index on `user_id` alone, Postgres fetches all of the user's rows and
+sorts them to find the newest 50. On 1,000,000 rows that took 62.8 ms for an
+account with 200,000 predictions and 2.0 ms for one with 1,000.
 
 ## Decision
 
-One composite index with the equality columns first and the sort column last, in
-the direction the query asks for:
+One composite index, equality column first, sort column last, in the direction
+the query asks for:
 
 ```sql
-CREATE INDEX ix_predictions_company_year_created_at
-    ON predictions (company, year, created_at DESC);
+CREATE INDEX ix_predictions_user_id_created_at
+    ON predictions (user_id, created_at DESC);
 ```
 
-The order is the decision. Equality predicates first means a b-tree descent
-lands directly on the matching range; the sort column last means entries within
-that range are already in `created_at DESC` order.
-
-Reversing it to `(created_at, company, year)` would be close to useless: the
-leading column carries no filter, so the scan could not narrow before reading.
-
-The explicit `DESC` matters less than it looks — PostgreSQL can walk a b-tree
-backwards, so an ascending index would also avoid the sort here. It is declared
-in the direction the query uses to keep the intent obvious, and it starts
-mattering as soon as a second sort column with a different direction appears.
+A b-tree descent lands on the start of the user's rows, which are already in
+`created_at DESC` order, so `LIMIT 50` stops after 50 entries and the sort step
+goes away. `(created_at, user_id)` would not work, because the leading column
+carries no filter.
 
 ## Consequences
 
-26 ms to 0.177 ms, buffers 20,476 to 53. Both plans are committed verbatim in
-`docs/explain_before.txt` and `docs/explain_after.txt`.
+0.196 ms for the heavy account and 0.163 ms for the typical one, 53 buffers in
+both cases. For an ordinary user the old index was already fast enough. What
+changes is that the cost no longer grows with the number of predictions a user
+has made. Plans are in `docs/explain_before.txt` and `docs/explain_after.txt`.
 
-**The sort node disappears entirely**, which is the more interesting half. An
-index making a scan faster is expected; the same index also returning rows
-pre-ordered is what lets `LIMIT 50` stop after 50 rows instead of sorting all
-1,157 matches.
-
-The index costs 39 MB against a 187 MB table and is maintained on every insert.
-That is a real cost on a table written to by every prediction — see
-[0004](0004-batch-the-prediction-log.md), which is what makes those writes
-asynchronous and batched.
+The index is 38 MB on the benchmark table and is maintained on every insert. It
+replaces both the single-column `user_id` index and the old company/year index,
+so the table carries less index than before. Inserts are batched off the
+request path, see [0004](0004-batch-the-prediction-log.md).

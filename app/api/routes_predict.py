@@ -74,20 +74,18 @@ async def predict_price(
     dependencies=[Depends(enforce_rate_limit)],
 )
 async def prediction_history(
-    company: Company,
-    year: int = Query(ge=1980, le=2026),
+    company: Company | None = None,
+    year: int | None = Query(default=None, ge=1980, le=2026),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    _: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(get_current_principal),
     predictions: PredictionRepository = Depends(get_prediction_repository),
 ):
-    rows = await predictions.history(company=company, year=year, limit=limit, offset=offset)
-    return PredictionHistory(
-        company=company,
-        year=year,
-        count=len(rows),
-        items=[PredictionRecord.model_validate(row) for row in rows],
+    """The caller's own predictions, newest first."""
+    rows = await predictions.history(
+        user_id=principal.id, company=company, year=year, limit=limit, offset=offset
     )
+    return PredictionHistory(count=len(rows), items=[PredictionRecord.model_validate(row) for row in rows])
 
 
 @router.post(

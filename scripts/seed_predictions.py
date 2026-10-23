@@ -5,7 +5,11 @@ row-by-row INSERT. Pass --compare to also time an INSERT loop over a small
 slice so the two are measured on the same hardware in the same run.
 
     python scripts/seed_predictions.py --rows 1000000
+    python scripts/seed_predictions.py --rows 1000000 --users 1000
     python scripts/seed_predictions.py --rows 1000000 --compare
+
+Rows are spread evenly across --users accounts, so the same row count can
+stand for a few heavy accounts or many ordinary ones.
 """
 
 import argparse
@@ -89,14 +93,12 @@ def generate(count: int, rng: random.Random, user_ids: list[int]):
         )
 
 
-async def ensure_users(conn: asyncpg.Connection, how_many: int = 5) -> list[int]:
+async def ensure_users(conn: asyncpg.Connection, how_many: int) -> list[int]:
     ids = [r['id'] for r in await conn.fetch('SELECT id FROM users ORDER BY id LIMIT $1', how_many)]
-    if ids:
-        return ids
     # A placeholder hash - these rows exist to satisfy the foreign key, and
     # nothing can authenticate as them.
     placeholder = '$2b$12$' + 'x' * 53
-    for i in range(how_many):
+    for i in range(len(ids), how_many):
         ids.append(
             await conn.fetchval(
                 'INSERT INTO users (username, hashed_password) VALUES ($1, $2) RETURNING id',
@@ -147,6 +149,7 @@ async def main() -> None:
     parser.add_argument('--compare', action='store_true', help='also time row-by-row INSERT')
     parser.add_argument('--compare-rows', type=int, default=10_000)
     parser.add_argument('--truncate', action='store_true', help='empty the table first')
+    parser.add_argument('--users', type=int, default=5, help='accounts the rows are spread across')
     args = parser.parse_args()
 
     rng = random.Random(7)
@@ -164,7 +167,7 @@ async def main() -> None:
             await conn.execute('TRUNCATE predictions RESTART IDENTITY')
             print('truncated predictions')
 
-        user_ids = await ensure_users(conn)
+        user_ids = await ensure_users(conn, args.users)
 
         if args.compare:
             print(f'\nrow-by-row INSERT of {args.compare_rows:,} rows...')

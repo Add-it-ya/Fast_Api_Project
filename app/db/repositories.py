@@ -54,19 +54,27 @@ class PredictionRepository:
         await self._session.commit()
         return prediction
 
-    async def history(self, *, company: str, year: int, limit: int, offset: int) -> list[Prediction]:
-        """Most recent predictions for a company and model year.
+    async def history(
+        self,
+        *,
+        user_id: int,
+        company: str | None = None,
+        year: int | None = None,
+        limit: int,
+        offset: int,
+    ) -> list[Prediction]:
+        """One user's predictions, newest first, optionally narrowed to a brand
+        or model year.
 
-        The equality filters and the sort are served by one composite index on
-        (company, year, created_at DESC) - see docs/query_optimisation.md.
+        Served by the (user_id, created_at DESC) index - see
+        docs/query_optimisation.md.
         """
-        statement = (
-            select(Prediction)
-            .where(Prediction.company == company, Prediction.year == year)
-            .order_by(Prediction.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        statement = select(Prediction).where(Prediction.user_id == user_id)
+        if company is not None:
+            statement = statement.where(Prediction.company == company)
+        if year is not None:
+            statement = statement.where(Prediction.year == year)
+        statement = statement.order_by(Prediction.created_at.desc()).limit(limit).offset(offset)
         result = await self._session.execute(statement)
         return list(result.scalars().all())
 

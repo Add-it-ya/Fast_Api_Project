@@ -374,27 +374,26 @@ Full documentation, including limitations and intended use:
 
 ## 🔍 Query optimisation
 
-`GET /predictions/history` filters by company and model year and returns the
-newest first. Against 1,010,000 seeded rows (187 MB), with only a primary key on
-the table, that plan is a parallel sequential scan discarding **336,281 rows per
-worker** and then sorting the survivors.
-
-One composite index fixes both halves:
+`GET /predictions/history` returns the caller's own predictions, newest first:
+`WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`. With an index on
+`user_id` alone, Postgres fetched all of a user's rows and sorted them. One
+composite index serves the filter and the order:
 
 ```sql
-CREATE INDEX ix_predictions_company_year_created_at
-    ON predictions (company, year, created_at DESC);
+CREATE INDEX ix_predictions_user_id_created_at
+    ON predictions (user_id, created_at DESC);
 ```
+
+Measured on 1,000,000 seeded rows, median of six runs:
 
 | | before | after |
 |---|---:|---:|
-| Execution time | 26.1 ms | **0.177 ms** |
-| Buffers touched | 20,476 | **53** |
-| Plan | Parallel Seq Scan + top-N heapsort | Index Scan, no sort |
+| Account with ~200,000 predictions | 62.8 ms, 23,390 buffers | **0.196 ms**, 53 buffers |
+| Account with ~1,000 predictions | 2.03 ms, 991 buffers | **0.163 ms**, 53 buffers |
 
-**147x faster.** The equality columns lead so a b-tree descent lands on the
-matching range, and `created_at DESC` trails so the rows come back already in the
-requested order — which is what removes the sort node, not just the table scan.
+For an ordinary user the old index was already fast enough. The point of the
+new one is that the cost no longer grows with how many predictions a user has
+made.
 
 Full plans: [docs/explain_before.txt](docs/explain_before.txt),
 [docs/explain_after.txt](docs/explain_after.txt). Reasoning, costs and how to
@@ -405,7 +404,7 @@ reproduce it: [docs/query_optimisation.md](docs/query_optimisation.md).
 `scripts/seed_predictions.py` bulk loads with PostgreSQL `COPY`:
 
 ```bash
-python scripts/seed_predictions.py --rows 1000000 --truncate --compare
+python scripts/seed_predictions.py --rows 1000000 --users 5 --truncate --compare
 ```
 
 | method | rows/sec |
@@ -454,7 +453,7 @@ measured and what it cost.
 | [Redis, not in-process cache](docs/adr/0002-redis-for-prediction-cache.md) | 4 workers would each keep their own copy | Redis on the read path |
 | [PostgreSQL over SQLite](docs/adr/0003-postgresql-over-sqlite.md) | Concurrent writers, real query planner, `COPY` | An operational dependency |
 | [Batch the prediction log](docs/adr/0004-batch-the-prediction-log.md) | A commit per request on the critical path | Queued rows are lost on crash |
-| [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 39 MB, maintained on every insert |
+| [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 38 MB, maintained on every insert |
 | [Token-only principal](docs/adr/0006-token-only-principal.md) | A database lookup on every request cost ~2.2 ms | Deleted users keep access until expiry |
 | [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | Per-worker windows; needs 200+ samples |
 

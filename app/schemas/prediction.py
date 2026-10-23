@@ -107,7 +107,5 @@ class PredictionRecord(BaseModel):
 
 
 class PredictionHistory(BaseModel):
-    company: str
-    year: int
     count: int
     items: list[PredictionRecord]

@@ -36,16 +36,12 @@ class User(Base):
 class Prediction(Base):
     __tablename__ = 'predictions'
 
-    # Equality columns first, then the sort column in the order the query asks
-    # for it, so one index serves both the WHERE and the ORDER BY and the
-    # planner can drop the sort node entirely.
+    # History is one user's rows, newest first: the equality column leads and
+    # the sort column follows in the order the query asks for, so one index
+    # serves both the WHERE and the ORDER BY and there is no sort step. With
+    # user_id leading it also covers the foreign key's lookups.
     __table_args__ = (
-        Index(
-            'ix_predictions_company_year_created_at',
-            'company',
-            'year',
-            text('created_at DESC'),
-        ),
+        Index('ix_predictions_user_id_created_at', 'user_id', text('created_at DESC')),
         Index(
             'ix_predictions_actual_price_created_at',
             'created_at',
@@ -60,9 +56,7 @@ class Prediction(Base):
     public_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, unique=True, index=True, nullable=False, server_default=text('gen_random_uuid()')
     )
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True
-    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     company: Mapped[str] = mapped_column(String(50), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
