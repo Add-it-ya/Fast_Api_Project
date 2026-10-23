@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from app.core.config import settings
@@ -108,7 +110,7 @@ async def test_each_route_has_its_own_budget(client, auth_headers, valid_car, li
 
 
 async def test_path_parameters_share_one_budget(client, operator_headers, limit):
-    """/predictions/1/actual and /predictions/2/actual are the same endpoint.
+    """/predictions/<a>/actual and /predictions/<b>/actual are the same endpoint.
     Counting them apart would give a caller a fresh budget per id."""
     limit(2)
 
@@ -120,7 +122,7 @@ async def test_path_parameters_share_one_budget(client, operator_headers, limit)
                 headers=operator_headers,
             )
         ).status_code
-        for prediction_id in (1, 2, 3)
+        for prediction_id in (uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
     ]
 
     # No predictions exist, so the first two are 404s - but they still count.

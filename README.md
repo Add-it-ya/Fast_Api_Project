@@ -354,10 +354,11 @@ after shifted traffic:
 
 ### Scoring against reality
 
-`POST /predictions/{id}/actual` attaches a real sale price to a logged
-prediction; `GET /model/performance` reports live error over recent scored
-predictions next to the training metrics, and exports `model_live_mae`. This is
-what turns the prediction log from an archive into a monitoring asset.
+`POST /predictions/{prediction_id}/actual` attaches a real sale price to a
+logged prediction, using the `prediction_id` that `/predict` returned. It needs
+the operator key and refuses to overwrite a price already recorded.
+`GET /model/performance` reports live error over recent scored predictions next
+to the training metrics, and exports `model_live_mae`.
 
 ### Version safety
 

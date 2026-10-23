@@ -76,7 +76,7 @@ async def model_performance(
     LIVE_SCORED.set(live['scored'])
 
     if live['scored'] == 0:
-        note = 'No outcomes reported yet. POST /predictions/{id}/actual to score a prediction.'
+        note = 'No outcomes reported yet. POST /predictions/{prediction_id}/actual to score a prediction.'
     else:
         note = (
             f'Live error over the last {live["scored"]} scored predictions, '

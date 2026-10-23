@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -10,6 +11,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Uuid,
     func,
     text,
 )
@@ -52,6 +54,12 @@ class Prediction(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # The id clients see. /predict answers before its row is written, so the
+    # database sequence cannot supply it; the API makes it at predict time.
+    # The default covers rows inserted without one, such as the seed script's.
+    public_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, unique=True, index=True, nullable=False, server_default=text('gen_random_uuid()')
+    )
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True
     )

@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,6 +84,7 @@ class CarFeatures(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    prediction_id: UUID = Field(description='Quote this to report the eventual sale price')
     predicted_price: float = Field(description='Estimated selling price')
     currency: Literal['INR'] = 'INR'
     model_version: int | None
@@ -92,7 +94,8 @@ class PredictionResponse(BaseModel):
 class PredictionRecord(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    # The internal row id stays internal; clients only ever see the public one.
+    prediction_id: UUID = Field(validation_alias='public_id')
     company: str
     year: int
     fuel: str

@@ -96,7 +96,7 @@ Artifacts are written with `joblib` compression level 3, which costs about
   feature against the training distribution recorded at training time. Under 0.1
   is stable, 0.1–0.25 a moderate shift, above 0.25 significant. Exposed to
   Prometheus as `model_feature_drift_psi{feature=...}`.
-- **Live accuracy** — `POST /predictions/{id}/actual` records a real sale price
+- **Live accuracy** — `POST /predictions/{prediction_id}/actual` records a real sale price
   against a prediction; `GET /model/performance` reports error over recent
   scored predictions next to the training metrics. Exposed as `model_live_mae`.
 

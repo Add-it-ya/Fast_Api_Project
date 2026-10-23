@@ -61,8 +61,8 @@ async def test_history_paginates(client, auth_headers, valid_car, flush_predicti
 
     assert first.json()['count'] == 2
     assert second.json()['count'] == 2
-    first_ids = {item['id'] for item in first.json()['items']}
-    second_ids = {item['id'] for item in second.json()['items']}
+    first_ids = {item['prediction_id'] for item in first.json()['items']}
+    second_ids = {item['prediction_id'] for item in second.json()['items']}
     assert first_ids.isdisjoint(second_ids)
 
 

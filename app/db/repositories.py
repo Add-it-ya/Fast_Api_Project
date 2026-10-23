@@ -5,7 +5,9 @@ session or build a statement themselves, which is what keeps the API, business
 and data-access layers genuinely separate rather than nominally so.
 """
 
-from sqlalchemy import func, insert, select
+import uuid
+
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Prediction, User
@@ -68,14 +70,27 @@ class PredictionRepository:
         result = await self._session.execute(statement)
         return list(result.scalars().all())
 
-    async def record_actual(self, prediction_id: int, actual_price: float) -> Prediction | None:
-        prediction = await self._session.get(Prediction, prediction_id)
-        if prediction is None:
-            return None
-        prediction.actual_price = actual_price
+    async def record_actual(self, public_id: uuid.UUID, actual_price: float) -> float | None:
+        """Set the sale price if none is recorded yet; return the predicted
+        price it is scored against, or None when nothing was updated.
+
+        One conditional UPDATE, so two reports racing for the same prediction
+        cannot both succeed.
+        """
+        statement = (
+            update(Prediction)
+            .where(Prediction.public_id == public_id, Prediction.actual_price.is_(None))
+            .values(actual_price=actual_price)
+            .returning(Prediction.predicted_price)
+            .execution_options(synchronize_session=False)
+        )
+        predicted = (await self._session.execute(statement)).scalar_one_or_none()
         await self._session.commit()
-        await self._session.refresh(prediction)
-        return prediction
+        return float(predicted) if predicted is not None else None
+
+    async def exists(self, public_id: uuid.UUID) -> bool:
+        found = await self._session.scalar(select(Prediction.id).where(Prediction.public_id == public_id))
+        return found is not None
 
     async def live_performance(self, limit: int = 1000) -> dict:
         """Error over the most recent predictions that have a reported outcome.

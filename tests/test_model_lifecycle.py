@@ -1,5 +1,10 @@
-import sklearn
+import uuid
 
+import pytest
+import sklearn
+from sqlalchemy import text
+
+from app.db.session import engine
 from app.services.model_registry import load_bundle
 
 
@@ -59,52 +64,78 @@ def test_bundle_survives_corrupt_metadata(tmp_path):
     assert bundle.version is None
 
 
+async def _predict(client, auth_headers, valid_car, flush_predictions) -> dict:
+    response = await client.post('/predict', json=valid_car, headers=auth_headers)
+    await flush_predictions()
+    return response.json()
+
+
 async def test_recording_an_actual_price_scores_the_prediction(
     client, auth_headers, operator_headers, valid_car, flush_predictions
 ):
-    await client.post('/predict', json=valid_car, headers=auth_headers)
-    await flush_predictions()
-
-    history = await client.get(
-        '/predictions/history',
-        params={'company': valid_car['company'], 'year': valid_car['year']},
-        headers=auth_headers,
-    )
-    prediction_id = history.json()['items'][0]['id']
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
 
     response = await client.post(
-        f'/predictions/{prediction_id}/actual',
+        f'/predictions/{prediction["prediction_id"]}/actual',
         json={'actual_price': 500000},
         headers=operator_headers,
     )
     assert response.status_code == 200
     body = response.json()
-    assert body['id'] == prediction_id
+    assert body['prediction_id'] == prediction['prediction_id']
     assert body['actual_price'] == 500000
+    assert body['predicted_price'] == pytest.approx(prediction['predicted_price'], abs=0.01)
     assert body['absolute_error'] == round(abs(body['predicted_price'] - 500000), 2)
+
+
+async def test_a_recorded_sale_price_is_not_overwritten(
+    client, auth_headers, operator_headers, valid_car, flush_predictions
+):
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
+    url = f'/predictions/{prediction["prediction_id"]}/actual'
+
+    first = await client.post(url, json={'actual_price': 500000}, headers=operator_headers)
+    second = await client.post(url, json={'actual_price': 1}, headers=operator_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    async with engine.connect() as conn:
+        stored = await conn.scalar(text('SELECT actual_price FROM predictions'))
+    assert float(stored) == 500000
 
 
 async def test_recording_against_a_missing_prediction_is_404(client, operator_headers):
     response = await client.post(
-        '/predictions/999999999/actual', json={'actual_price': 100}, headers=operator_headers
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers=operator_headers
     )
     assert response.status_code == 404
 
 
+async def test_the_internal_row_id_is_not_accepted(client, operator_headers):
+    response = await client.post(
+        '/predictions/1/actual', json={'actual_price': 100}, headers=operator_headers
+    )
+    assert response.status_code == 422
+
+
 async def test_actual_price_is_validated(client, operator_headers):
-    response = await client.post('/predictions/1/actual', json={'actual_price': -5}, headers=operator_headers)
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': -5}, headers=operator_headers
+    )
     assert response.status_code == 422
 
 
 async def test_a_user_token_cannot_report_a_sale_price(client, auth_headers):
-    response = await client.post('/predictions/1/actual', json={'actual_price': 100}, headers=auth_headers)
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers=auth_headers
+    )
     assert response.status_code == 401
     assert response.json()['detail'] == 'Missing or invalid API key'
 
 
 async def test_a_wrong_operator_key_is_rejected(client):
     response = await client.post(
-        '/predictions/1/actual', json={'actual_price': 100}, headers={'api-key': 'not-the-key'}
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers={'api-key': 'not-the-key'}
     )
     assert response.status_code == 401
 
@@ -113,7 +144,9 @@ async def test_a_non_ascii_api_key_is_rejected_not_crashed(client):
     # Header values arrive decoded as latin-1, so any byte over 0x7f becomes a
     # non-ASCII character - which secrets.compare_digest refuses for str.
     response = await client.post(
-        '/predictions/1/actual', json={'actual_price': 100}, headers={'api-key': 'clé-invalide'.encode()}
+        f'/predictions/{uuid.uuid4()}/actual',
+        json={'actual_price': 100},
+        headers={'api-key': 'cl\u00e9-invalide'.encode()},
     )
     assert response.status_code == 401
 
@@ -131,28 +164,20 @@ async def test_performance_is_empty_before_any_outcome(client, auth_headers):
     body = response.json()
     assert body['scored'] == 0
     assert body['live_mae'] is None
-    assert 'POST /predictions/{id}/actual' in body['note']
+    assert 'POST /predictions/{prediction_id}/actual' in body['note']
 
 
 async def test_performance_reports_live_error_against_training(
     client, auth_headers, operator_headers, valid_car, flush_predictions
 ):
-    await client.post('/predict', json=valid_car, headers=auth_headers)
-    await flush_predictions()
-
-    history = await client.get(
-        '/predictions/history',
-        params={'company': valid_car['company'], 'year': valid_car['year']},
-        headers=auth_headers,
-    )
-    item = history.json()['items'][0]
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
     await client.post(
-        f'/predictions/{item["id"]}/actual',
+        f'/predictions/{prediction["prediction_id"]}/actual',
         json={'actual_price': 500000},
         headers=operator_headers,
     )
 
     body = (await client.get('/model/performance', headers=auth_headers)).json()
     assert body['scored'] == 1
-    assert body['live_mae'] == round(abs(float(item['predicted_price']) - 500000), 2)
+    assert body['live_mae'] == pytest.approx(abs(prediction['predicted_price'] - 500000), abs=0.01)
     assert body['training_mae'] > 0

@@ -1,4 +1,5 @@
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,7 +10,7 @@ from app.core.dependencies import (
     get_prediction_service,
     require_api_key,
 )
-from app.core.exceptions import AppError
+from app.core.exceptions import ActualAlreadyRecordedError, PredictionNotFoundError
 from app.core.metrics import PREDICTION_LATENCY, PREDICTION_VALUE, PREDICTIONS
 from app.core.rate_limit import enforce_rate_limit
 from app.db.repositories import PredictionRepository
@@ -49,9 +50,21 @@ async def predict_price(
 
     monitor.observe(features)
 
-    writer.enqueue({**features, 'user_id': principal.id, 'predicted_price': price, 'cache_hit': cache_hit})
+    prediction_id = uuid.uuid4()
+    writer.enqueue(
+        {
+            **features,
+            'public_id': prediction_id,
+            'user_id': principal.id,
+            'predicted_price': price,
+            'cache_hit': cache_hit,
+        }
+    )
     return PredictionResponse(
-        predicted_price=round(price, 2), model_version=service.model_version, cached=cache_hit
+        prediction_id=prediction_id,
+        predicted_price=round(price, 2),
+        model_version=service.model_version,
+        cached=cache_hit,
     )
 
 
@@ -77,18 +90,13 @@ async def prediction_history(
     )
 
 
-class PredictionNotFoundError(AppError):
-    status_code = 404
-    detail = 'No such prediction'
-
-
 @router.post(
     '/predictions/{prediction_id}/actual',
     response_model=ScoredPrediction,
     dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
 )
 async def record_actual_price(
-    prediction_id: int,
+    prediction_id: uuid.UUID,
     body: ActualPrice,
     predictions: PredictionRepository = Depends(get_prediction_repository),
 ):
@@ -96,15 +104,16 @@ async def record_actual_price(
 
     An operator action, not a user one: the sale price comes from whoever
     records the sale, and letting any user set it would let them skew the
-    live error figures.
+    live error figures. A recorded price is never overwritten.
     """
-    row = await predictions.record_actual(prediction_id, body.actual_price)
-    if row is None:
+    predicted = await predictions.record_actual(prediction_id, body.actual_price)
+    if predicted is None:
+        if await predictions.exists(prediction_id):
+            raise ActualAlreadyRecordedError()
         raise PredictionNotFoundError()
 
-    predicted = float(row.predicted_price)
     return ScoredPrediction(
-        id=row.id,
+        prediction_id=prediction_id,
         predicted_price=predicted,
         actual_price=body.actual_price,
         absolute_error=round(abs(predicted - body.actual_price), 2),

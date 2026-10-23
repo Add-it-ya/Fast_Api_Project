@@ -23,19 +23,24 @@ async def test_second_identical_request_is_served_from_cache(client, auth_header
     assert first.json()['cached'] is False
     assert second.json()['cached'] is True
     assert first.json()['predicted_price'] == second.json()['predicted_price']
+    # Same price, but each request is its own prediction with its own id.
+    assert first.json()['prediction_id'] != second.json()['prediction_id']
 
 
-async def test_prediction_is_logged_to_the_database(client, auth_headers, valid_car, flush_predictions):
-    await client.post('/predict', json=valid_car, headers=auth_headers)
+async def test_prediction_is_logged_under_the_id_it_returned(
+    client, auth_headers, valid_car, flush_predictions
+):
+    response = await client.post('/predict', json=valid_car, headers=auth_headers)
     await flush_predictions()
 
     async with engine.connect() as conn:
         row = (
             await conn.execute(
-                text('SELECT company, year, predicted_price, cache_hit, user_id FROM predictions')
+                text('SELECT public_id, company, year, predicted_price, cache_hit, user_id FROM predictions')
             )
         ).one()
 
+    assert str(row.public_id) == response.json()['prediction_id']
     assert row.company == 'Maruti'
     assert row.year == 2015
     assert float(row.predicted_price) > 0
