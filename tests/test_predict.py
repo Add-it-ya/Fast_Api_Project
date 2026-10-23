@@ -4,12 +4,16 @@ from app.core.config import settings
 from app.db.session import engine
 
 
-async def test_predict_returns_a_price(client, auth_headers, valid_car):
+async def test_predict_returns_a_price(client, auth_headers, valid_car, model_bundle):
     response = await client.post('/predict', json=valid_car, headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
     assert body['cached'] is False
-    assert float(body['predicted_price'].replace(',', '')) > 0
+    # A number a client can use as is, not a formatted string to parse.
+    assert isinstance(body['predicted_price'], float)
+    assert body['predicted_price'] > 0
+    assert body['currency'] == 'INR'
+    assert body['model_version'] == model_bundle.version
 
 
 async def test_second_identical_request_is_served_from_cache(client, auth_headers, valid_car):

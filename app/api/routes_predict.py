@@ -50,7 +50,9 @@ async def predict_price(
     monitor.observe(features)
 
     writer.enqueue({**features, 'user_id': principal.id, 'predicted_price': price, 'cache_hit': cache_hit})
-    return PredictionResponse(predicted_price=f'{price:,.2f}', cached=cache_hit)
+    return PredictionResponse(
+        predicted_price=round(price, 2), model_version=service.model_version, cached=cache_hit
+    )
 
 
 @router.get(

@@ -83,7 +83,9 @@ class CarFeatures(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    predicted_price: str
+    predicted_price: float = Field(description='Estimated selling price')
+    currency: Literal['INR'] = 'INR'
+    model_version: int | None
     cached: bool
 
 

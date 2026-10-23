@@ -41,7 +41,7 @@ async def test_predictions_fall_back_to_the_model(client, auth_headers, valid_ca
 
     assert response.status_code == 200
     assert response.json()['cached'] is False
-    assert float(response.json()['predicted_price'].replace(',', '')) > 0
+    assert response.json()['predicted_price'] > 0
 
 
 async def test_login_still_works(client, registered_user, break_redis):

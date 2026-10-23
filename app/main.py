@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     shutdown_logging()
 
 
-app = FastAPI(title=settings.PROJECT_NAME, version='2.0.0', lifespan=lifespan)
+app = FastAPI(title=settings.PROJECT_NAME, version='3.0.0', lifespan=lifespan)
 
 app.add_middleware(LoggingMiddleware)
 

@@ -38,6 +38,10 @@ class PredictionService:
         self._model = model
         self._model_version = model_version
 
+    @property
+    def model_version(self) -> int | None:
+        return self._model_version
+
     async def predict(self, features: dict) -> tuple[float, bool]:
         if self._model is None:
             raise ModelUnavailableError()
