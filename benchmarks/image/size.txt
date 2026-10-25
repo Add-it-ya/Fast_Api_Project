@@ -1,0 +1,21 @@
+# 2026-10-25T14:55Z, Docker 29.4.2 on Docker Desktop (containerd image store)
+# both images built on this machine from git archive exports of the commit shown
+#   old: ccc6807, single stage FROM python:3.10, runs as root
+#   new: 6787563, multi-stage, runtime FROM python:3.10-slim-bookworm, runs as uid 999
+
+unpacked filesystem, du -sxm / inside the container:
+  carprice:size-old  1536 MB
+  carprice:size-new  570 MB
+compressed layers, docker image inspect --format {{.Size}}:
+  carprice:size-old  511 MB (536045151 bytes)
+  carprice:size-new  167 MB (175617631 bytes)
+docker image ls (this store keeps compressed layers and the unpacked copy, so roughly the sum of the two above):
+carprice:size-new  777MB
+carprice:size-old  2.17GB
+uid:
+  carprice:size-old  0
+  carprice:size-new  999
+
+# CI (GitHub Actions, classic image store) reports the current image at 517 MB with the same
+# docker image inspect command; that store most likely reports unpacked size, which is close
+# to the du figure above.

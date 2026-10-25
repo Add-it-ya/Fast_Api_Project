@@ -14,9 +14,10 @@ part of the response.
 Rows go onto an in-memory queue. A single consumer drains them and writes each
 batch as one multi-row `INSERT`.
 
-**A per-request `BackgroundTasks` was tried first and measured worse**: p95 at
-100-way concurrency went to 3.2 s, because every task opened its own session and
-they fought over the connection pool. Deferring work is not the same as reducing
+**A per-request `BackgroundTasks` was tried first and was slower than
+batching**, because every task opened its own session and they fought over the
+connection pool. That run was made on the original 10-tree model and its output
+was not kept. Deferring work is not the same as reducing
 it. Batching turns N commits into roughly N/200.
 
 ## Consequences

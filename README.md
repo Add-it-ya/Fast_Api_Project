@@ -138,64 +138,98 @@ docker-compose up --build
 
 ```bash
 # in another shell, with the API running
-CONCURRENCY=100 TOTAL_REQUESTS=1000 python scripts/load_test.py
+CONCURRENCY=10 TOTAL_REQUESTS=1000 python scripts/load_test.py
 ```
 
-The script logs in, warms the cache, then fires `TOTAL_REQUESTS` `/predict`
-calls across `CONCURRENCY` workers and prints p50 / p95 / p99 / max latency.
-
-Each run generates a fresh pool of feature vectors, so a repeat run is not
-quietly measuring a Redis cache that the previous run warmed. Cache hits and
-misses are reported separately — a p95 made up of cache hits says nothing about
-the inference path. Pin `SEED` to reproduce a run exactly.
+The script logs in, sends one warm-up request, then fires `TOTAL_REQUESTS`
+`/predict` calls from `CONCURRENCY` concurrent clients and prints p50 / p95 /
+p99 / max latency, with cache hits and misses reported separately.
+`UNIQUE_VECTORS=0` makes every request a different car, so every one is a model
+call. `TARGET=health` measures `/health` instead. Set `SERVER_WORKERS` so the
+result file records how many workers the server ran.
 
 ---
 
 ## 📊 Measured performance
 
-Docker Desktop, 12 CPUs, all services on one host. 1000 requests per run,
-~55% cache miss rate. Raw runs are committed under `benchmarks/`.
+Model v4 on the current code. Docker Desktop with 12 CPUs, and **everything on
+one machine**: the API, PostgreSQL, Redis and the load generator. 1,000
+requests per run, three runs per row, median shown. The raw files are in
+[`benchmarks/v4/`](benchmarks/v4/), and `python scripts/benchmark_table.py
+benchmarks/v4/<dir>` rebuilds each table from them.
 
-`baseline` is a single uvicorn worker before any tuning; `optimised` is the
-current code on 4 workers. Optimised figures are the median of three runs;
-baseline figures are a single run each, so treat those as indicative.
+**Every request a different car**, so every request runs the model. This is
+the conservative case, because real traffic rarely repeats all twelve features
+exactly:
 
-| Concurrency | baseline p95 | optimised p95 | baseline rps | optimised rps |
-|------------:|-------------:|--------------:|-------------:|--------------:|
-| 1   |   14 ms |     **9 ms** |  95 |     **173** |
-| 10  |  114 ms |    **47 ms** | 124 |     **445** |
-| 25  |  368 ms |   **166 ms** | 111 |     **337** |
-| 50  |  548 ms |       790 ms | 120 |     **187** |
-| 100 | 1955 ms |      1415 ms | 112 |     **187** |
+| clients | 1 worker req/s | 1 worker p95 | 4 workers req/s | 4 workers p95 |
+|---:|---:|---:|---:|---:|
+| 1 | 116 | 10.7 ms | 104 | 12.1 ms |
+| 10 | 96 | 134 ms | 203 | 105 ms |
+| 25 | 97 | 296 ms | **235** | 188 ms |
+| 50 | 92 | 638 ms | 157 | 879 ms |
+| 100 | 90 | 1,240 ms | 98 | 2,862 ms |
 
-Throughput improved at every level, by 1.6x to 3.6x. p95 improved everywhere
-except 50-way, where the single baseline run looks optimistic next to its own
-neighbours and the comparison is not trustworthy.
+**A pool of 200 cars replayed**, which gives about 80% cache hits. That ratio
+is set by the test, not measured from real traffic:
 
-**Sub-100 ms p95 holds to roughly 10-15 concurrent clients.** It does not hold at
-100 — that needs more than one host. On this hardware even `/health`, which
-touches nothing, saturates around 530 req/s at 100-way concurrency, so the
-remaining latency there is queueing that no application-level change removes.
+| clients | 1 worker req/s | 1 worker p95 | 4 workers req/s | 4 workers p95 |
+|---:|---:|---:|---:|---:|
+| 1 | 188 | 11.3 ms | 218 | 9.8 ms |
+| 10 | 257 | 115 ms | **536** | 49.6 ms |
+| 25 | 240 | 258 ms | 318 | 186 ms |
+| 50 | 156 | 766 ms | 180 | 817 ms |
+| 100 | 103 | 2,993 ms | 156 | 2,261 ms |
 
-### What the optimisation actually was
+What that shows:
 
-Three bottlenecks, each measured before being changed:
+- **One worker tops out at about 95 model calls a second.** Past one client,
+  extra clients only wait. At 10 clients the median latency (106 ms) is almost
+  exactly 10 divided by 96 per second.
+- **Four workers peak at about 235 a second, 2.4x one worker, not 4x.**
+- **p95 stays under 100 ms** for one client when every request runs the model,
+  and up to 10 clients when 80% are cache hits on 4 workers (49.6 ms).
+- **Above about 25 clients throughput falls in every configuration.** Even
+  `/health`, which does no work, drops from about 750 req/s at 10 clients to
+  about 560 at 100 ([`benchmarks/v4/health-*`](benchmarks/v4/)). The load
+  generator shares 12 cores with four workers, PostgreSQL and Redis, so at
+  that point these numbers describe this machine as much as the service. Why
+  `/predict` on 4 workers falls further than `/health`, to about 100 req/s at
+  100 clients, has not been diagnosed. Too many inference threads competing for
+  the cores is the first thing to check.
+- At 100 clients on one worker, 1 request in 3,000 failed with a dropped
+  connection.
+
+### Earlier results, and what changed since
+
+[`benchmarks/baseline/`](benchmarks/baseline/) and
+[`benchmarks/optimised/`](benchmarks/optimised/) were recorded on
+1 September 2026 against the original 10-tree, depth-5 forest, before any of
+the current models existed. They show the combined effect of three request-path
+fixes and of going from one worker to four at the same time: at 10 clients,
+124 to 445 req/s. The fixes were not measured one at a time in committed runs.
+Those files say nothing about the model served today. They are kept as the
+record of that change.
+
+The three fixes:
 
 1. **Synchronous logging.** `logging` writes to stdout, and in an async service
    the calling thread is the event loop, so every log line stalled every request
    in flight. Records now go through a `QueueHandler` and a background thread
    does the writing, the access middleware was rewritten as pure ASGI rather than
-   `BaseHTTPMiddleware`, and uvicorn's duplicate access log is off. On its own
-   this took `/health` from 156 to 739 req/s.
+   `BaseHTTPMiddleware`, and uvicorn's duplicate access log is off.
 2. **A database round trip per authenticated request.** `get_current_user`
    loaded the user on every call. `/predict` now builds a `Principal` from the
-   token claims instead, which is what a stateless JWT is for. Measured cost of
-   that lookup: ~2.2 ms per request.
+   token claims instead, which is what a stateless JWT is for.
 3. **A commit per prediction.** Prediction rows are an analytics record the
    caller never reads back, so they are queued and written by a single consumer
    as one multi-row `INSERT` per batch. Doing this as a per-request background
    task first was *worse* — every task opened its own session and fought over the
    connection pool — which is why it is batched rather than merely deferred.
+
+Since then the model is served single-threaded, which took one prediction from
+30 ms to 4.3 ms ([`benchmarks/inference/`](benchmarks/inference/)), and v4 has
+half the trees of v3.
 
 Rows still queued when the process dies are lost. That is the trade for taking
 the write off the request path, and it is only acceptable because nothing tells
@@ -214,20 +248,20 @@ reach the runtime image, which carries the virtualenv and one system library —
 `libgomp1`, the OpenMP runtime scikit-learn links against and the one thing the
 slim base is missing that the model actually needs.
 
-| | before | after |
+| | single stage (`ccc6807`) | multi-stage (now) |
 |---|---:|---:|
 | Base | `python:3.10` | `python:3.10-slim-bookworm`, pinned by digest |
-| Image size (Docker Desktop) | 2.21 GB | **831 MB** |
-| Image size (single platform, CI) | — | **517 MB** |
+| Unpacked size | 1,536 MB | **570 MB** |
+| Compressed layers, what a pull downloads | 511 MB | **167 MB** |
 | Runs as | root | **uid 999 (`app`)** |
-| Cold start to healthy | — | ~3.9 s, including migrations |
+| Cold start to healthy | | 3.6 to 3.7 s, including migrations |
 
-**62% smaller and unprivileged.** Both size figures are real and measured the
-same way on each host: Docker Desktop's buildx attaches multi-platform
-attestation manifests, so it reports more than the single-platform image CI
-actually builds. 517 MB is what would be deployed. The base is pinned by digest
-so a rebuild months from now produces the same image rather than whatever the
-tag points at.
+**63% smaller unpacked, 67% smaller to download, and unprivileged.** Both images were built on the same
+machine from clean exports of their commits and measured the same way
+([`benchmarks/image/`](benchmarks/image/)). CI prints 517 MB for the current
+image on every run. That is the same image measured by a differently configured
+Docker. The base is pinned by digest, so a rebuild months from now produces the
+same image rather than whatever the tag points at.
 
 The runtime user cannot write to the virtualenv, which is the point — so test
 tooling gets its own target instead of the production image being loosened to
@@ -415,11 +449,12 @@ python scripts/seed_predictions.py --rows 1000000 --users 5 --truncate --compare
 
 | method | rows/sec |
 |---|---:|
-| row-by-row `INSERT` | 1,346 |
-| `COPY` | **48,040** |
+| row-by-row `INSERT` | 2,248 |
+| `COPY` | **33,463** |
 
-**36x faster.** `--compare` times both in the same run on the same hardware, and
-row generation in Python is timed separately from the COPY itself.
+**15x faster**, both timed in the same run on the same hardware with `--compare`
+([`benchmarks/seed/`](benchmarks/seed/)). Generating rows in Python is timed
+separately from the `COPY` itself.
 
 ---
 
@@ -460,7 +495,7 @@ measured and what it cost.
 | [PostgreSQL over SQLite](docs/adr/0003-postgresql-over-sqlite.md) | Concurrent writers, real query planner, `COPY` | An operational dependency |
 | [Batch the prediction log](docs/adr/0004-batch-the-prediction-log.md) | A commit per request on the critical path | Queued rows are lost on crash |
 | [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 38 MB, maintained on every insert |
-| [Token-only principal](docs/adr/0006-token-only-principal.md) | A database lookup on every request cost ~2.2 ms | Deleted users keep access until expiry |
+| [Token-only principal](docs/adr/0006-token-only-principal.md) | A database round trip on every request for what the token already says | Deleted users keep access until expiry |
 | [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | A count-based window; needs 200+ samples |
 
 Two of these were arrived at by measuring a worse alternative first: per-request
@@ -471,10 +506,11 @@ throughput *worse* until the connection pool was resized.
 
 ## 🚧 Known limitations
 
-- **Sub-100 ms p95 does not hold at 100-way concurrency.** It holds to roughly
-  10–15 clients. On one host even `/health`, which touches nothing, saturates
-  around 530 req/s — past that the latency is queueing, and no application
-  change removes it. Getting further needs more than one machine.
+- **Throughput is one machine's.** With every request running the model, 4
+  workers peak at about 235 req/s, and p95 is under 100 ms only for a single
+  client. Above about 25 clients throughput falls, and the load generator
+  shares the same cores, so the high-concurrency figures describe this host as
+  much as the service.
 - **The model is modest.** MAPE is ~18%: a typical prediction is off by about a
   fifth of the true price. Useful as a starting point, not as a final number.
   Under 7,000 training rows for a 32-brand market, and 19 of 30 brands are under

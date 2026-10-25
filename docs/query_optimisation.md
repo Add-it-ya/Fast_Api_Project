@@ -132,10 +132,12 @@ same run:
 
 | method | rows/sec |
 |---|---:|
-| row-by-row `INSERT` | 1,346 |
-| `COPY` (copy time only) | 48,040 |
-| `COPY` end to end, incl. generating the rows in Python | 38,142 |
+| row-by-row `INSERT` | 2,248 |
+| `COPY` (copy time only) | 33,463 |
+| `COPY` end to end, incl. generating the rows in Python | 28,422 |
 
-**36x faster.** Generating the synthetic tuples in Python is a real share of the
+**15x faster.** Raw output in
+[benchmarks/seed/copy_vs_insert.txt](../benchmarks/seed/copy_vs_insert.txt), loading 1,000,000
+rows into the table with its four current indexes. Generating the synthetic tuples in Python is a real share of the
 wall time and says nothing about the database, so the script times it separately
 rather than folding it into the COPY figure.

@@ -21,7 +21,7 @@ workload. It was rejected here because:
   benefits from `EXPLAIN (ANALYZE, BUFFERS)` to verify the plan. SQLite's
   planner and tooling are thinner.
 - Bulk loading benchmark data uses `COPY`, which has no SQLite equivalent —
-  measured at 48,000 rows/sec against 1,300 for row-by-row inserts.
+  measured at 33,000 rows/sec against 2,200 for row-by-row inserts.
 
 ## Consequences
 

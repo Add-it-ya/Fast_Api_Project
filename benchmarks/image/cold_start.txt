@@ -1,0 +1,5 @@
+# 2026-10-25T14:54Z, git 6787563 runtime image, 4 workers, fresh database each run
+# from docker run until GET /health answers 200: includes migrations and loading the model
+run 1: 3710 ms, 5 migrations applied
+run 2: 3620 ms, 5 migrations applied
+run 3: 3700 ms, 5 migrations applied

@@ -49,10 +49,13 @@ def main() -> None:
     for name in sys.argv[1:]:
         directory = Path(name)
         rows = summarise(directory)
-        config = json.loads(next(directory.glob('*.json')).read_text())['config']
-        target = config.get('target', 'predict')
-        print(f'\n{directory}  (target {target}, workers {config.get("server_workers")}, ', end='')
-        print(f'model v{config.get("model_version")}, git {config.get("git_sha")})\n')
+        configs = [json.loads(path.read_text())['config'] for path in directory.glob('*.json')]
+
+        def values(key: str, configs: list[dict] = configs) -> str:
+            return ', '.join(sorted({str(c.get(key)) for c in configs}))
+
+        print(f'\n{directory}  (target {values("target")}, workers {values("server_workers")}, ', end='')
+        print(f'model v{values("model_version")}, git {values("git_sha")})\n')
         print('| clients | runs | req/s | p50 | p95 | p99 | cache hits | failed |')
         print('|---:|---:|---:|---:|---:|---:|---:|---:|')
         for concurrency, row in rows.items():
