@@ -3,8 +3,7 @@
 The Prometheus instrumentator already records generic HTTP timings. What it
 cannot see is anything about the prediction itself: whether the cache answered,
 how long the model took as distinct from the request around it, or what is
-being asked about. Those are the numbers that tell you whether the service is
-healthy as an ML service rather than as a web server.
+being asked about.
 """
 
 from prometheus_client import Counter, Histogram

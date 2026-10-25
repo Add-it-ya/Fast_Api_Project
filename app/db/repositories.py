@@ -1,8 +1,7 @@
 """Data access layer.
 
 Every query against the database lives here. Routes and services never hold a
-session or build a statement themselves, which is what keeps the API, business
-and data-access layers genuinely separate rather than nominally so.
+session or build a statement themselves.
 """
 
 import uuid

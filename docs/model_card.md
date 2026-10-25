@@ -48,13 +48,12 @@ cross-validated estimates from model selection are in the last column:
 | R² | 0.93 | -0.00 | 0.89 |
 | MAPE | 17.80% | 106.58% | 18.02% |
 
-The baseline is included deliberately. An R² of 0.93 means little on its own;
-it means more next to what predicting the average would have achieved.
+An R² of 0.93 means little on its own; the baseline shows what predicting the
+average would have scored.
 
-MAPE of ~18% is the honest headline: a typical prediction is off by roughly a
-fifth of the true price. Both the test split and cross-validation agree on
-that. That is useful as a starting point and not useful as a
-final number.
+MAPE of about 18% is the figure to quote: a typical prediction is off by
+roughly a fifth of the true price, and the test split and cross-validation
+agree on it. That is useful as a starting point, not as a final number.
 
 ## Choosing the forest
 

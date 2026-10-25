@@ -90,9 +90,8 @@ total.
 | Rows read to return 50 | 199,472 | 50 | 1,007 | 50 |
 | Sort node | top-N heapsort | none | top-N heapsort | none |
 
-About **320x** faster for a heavy account and **12x** for a typical one. The
-honest reading is that for an ordinary user the single-column index was
-already fast enough. The composite index matters because the cost before grew
+About **320x** faster for a heavy account and **12x** for a typical one. For an
+ordinary user the single-column index was already fast enough. The composite index matters because the cost before grew
 with the user's row count and now does not. A heavy account would otherwise get
 slower with every prediction it makes.
 
