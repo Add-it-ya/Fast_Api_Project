@@ -55,7 +55,7 @@ flowchart TB
 
 The dotted edge is the prediction log: rows are queued and written in batches
 after the response is sent, so the commit is off the request path
-([ADR 0004](docs/adr/0004-batch-the-prediction-log.md)).
+([design](docs/design.md#6-the-prediction-log-is-written-in-batches)).
 
 ---
 
@@ -485,18 +485,18 @@ CI runs the same suite on Python 3.10, 3.11 and 3.12, plus `ruff`, `mypy` and
 
 ## 🧭 Design decisions
 
-Each decision below is recorded in [`docs/adr/`](docs/adr/) with what was
+Each decision below is written up in [`docs/design.md`](docs/design.md) with what was
 measured and what it cost.
 
 | Decision | Why | Cost |
 |---|---|---|
-| [Offload inference to a thread](docs/adr/0001-offload-inference-to-a-thread.md) | Sync `predict` on an async route blocks every request in flight | Bounded by executor threads; concurrency, not parallelism |
-| [Redis, not in-process cache](docs/adr/0002-redis-for-prediction-cache.md) | 4 workers would each keep their own copy | Redis on the read path |
-| [PostgreSQL over SQLite](docs/adr/0003-postgresql-over-sqlite.md) | Concurrent writers, real query planner, `COPY` | An operational dependency |
-| [Batch the prediction log](docs/adr/0004-batch-the-prediction-log.md) | A commit per request on the critical path | Queued rows are lost on crash |
-| [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 38 MB, maintained on every insert |
-| [Token-only principal](docs/adr/0006-token-only-principal.md) | A database round trip on every request for what the token already says | Deleted users keep access until expiry |
-| [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | A count-based window; needs 200+ samples |
+| [Offload inference to a thread](docs/design.md#2-inference-in-a-thread-one-core-per-prediction) | Sync `predict` on an async route blocks every request in flight | Bounded by executor threads; concurrency, not parallelism |
+| [Redis, not in-process cache](docs/design.md#3-a-prediction-cache-in-redis) | 4 workers would each keep their own copy | Redis on the read path |
+| [PostgreSQL over SQLite](docs/design.md#5-postgresql) | Concurrent writers, real query planner, `COPY` | An operational dependency |
+| [Batch the prediction log](docs/design.md#6-the-prediction-log-is-written-in-batches) | A commit per request on the critical path | Queued rows are lost on crash |
+| [Index column order](docs/design.md#8-history-index-user_id-created_at-desc) | Equality first, sort last, so one index serves both | 38 MB, maintained on every insert |
+| [Token-only principal](docs/design.md#7-predict-trusts-the-token) | A database round trip on every request for what the token already says | Deleted users keep access until expiry |
+| [PSI for drift](docs/design.md#10-drift-by-psi-from-the-prediction-log) | Inputs shift before accuracy can be measured | A count-based window; needs 200+ samples |
 
 Two of these were arrived at by measuring a worse alternative first: per-request
 `BackgroundTasks` was slower than batching, and more uvicorn workers made
