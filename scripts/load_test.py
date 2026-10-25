@@ -120,10 +120,15 @@ async def authenticate(client: httpx.AsyncClient) -> str:
 async def fire(client, semaphore, headers, payload) -> tuple[float, int, bool]:
     async with semaphore:
         started = time.perf_counter()
-        if payload is None:
-            response = await client.get('/health')
-        else:
-            response = await client.post('/predict', json=payload, headers=headers)
+        try:
+            if payload is None:
+                response = await client.get('/health')
+            else:
+                response = await client.post('/predict', json=payload, headers=headers)
+        except httpx.TransportError:
+            # A dropped or refused connection is a failed request, not a reason
+            # to throw away the whole run. Recorded as status 0.
+            return (time.perf_counter() - started) * 1000, 0, False
         elapsed_ms = (time.perf_counter() - started) * 1000
 
     cached = False
