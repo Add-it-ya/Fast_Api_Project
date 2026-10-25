@@ -65,8 +65,21 @@ class ModelBundle:
         }
 
 
+def serve_single_threaded(pipeline: Any) -> None:
+    """Training fits with n_jobs=-1 and the artifact keeps that setting. At
+    serving time each call is one row, and spreading one row's trees across
+    every core costs more than it saves: the median prediction took 30 ms
+    with n_jobs=-1 and 4.3 ms with n_jobs=1 on 12 cores (see
+    benchmarks/inference/). Concurrency comes from running requests side by
+    side, not from splitting one of them."""
+    params = {name: 1 for name in pipeline.get_params() if name == 'n_jobs' or name.endswith('__n_jobs')}
+    if params:
+        pipeline.set_params(**params)
+
+
 def load_bundle(model_path: str, metadata_path: str) -> ModelBundle:
     pipeline = joblib.load(model_path)
+    serve_single_threaded(pipeline)
 
     metadata: dict = {}
     path = Path(metadata_path)

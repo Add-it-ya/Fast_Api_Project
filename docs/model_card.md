@@ -73,6 +73,16 @@ configuration is 5x smaller than the largest tried and marginally more accurate.
 Artifacts are written with `joblib` compression level 3, which costs about
 0.3 s of load time at startup and saves a further 5x.
 
+## Serving
+
+Training fits with `n_jobs=-1`, and the saved artifact keeps that setting.
+`load_bundle` switches it to `n_jobs=1` at startup, because each request
+predicts a single row. On 12 cores, the median prediction took 30 ms spread
+across all cores and 4.3 ms on one. With 8 predictions running at once,
+throughput roughly doubled, from 38 to 73 per second. Raw output from three
+runs of `scripts/inference_benchmark.py` is in
+[benchmarks/inference/n_jobs.txt](../benchmarks/inference/n_jobs.txt).
+
 ## Limitations
 
 - **Small dataset.** Under 7,000 rows for a 32-brand market. Rare brands have

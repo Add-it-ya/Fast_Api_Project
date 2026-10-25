@@ -1,0 +1,13 @@
+# 2026-10-25T13:12Z, git 20585ba, Docker Desktop, carprice:dev image
+## run 1
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  30.08 ms, p95  33.43 ms | 8 threads: p50 193.65 ms, p95 237.72 ms,   38 predictions/s
+n_jobs=1   one at a time: p50   4.33 ms, p95   6.85 ms | 8 threads: p50  97.79 ms, p95 136.55 ms,   73 predictions/s
+## run 2
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  29.67 ms, p95  32.85 ms | 8 threads: p50 190.36 ms, p95 240.28 ms,   38 predictions/s
+n_jobs=1   one at a time: p50   4.25 ms, p95   6.48 ms | 8 threads: p50  97.31 ms, p95 138.76 ms,   72 predictions/s
+## run 3
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  29.74 ms, p95  33.71 ms | 8 threads: p50 200.17 ms, p95 252.06 ms,   37 predictions/s
+n_jobs=1   one at a time: p50   4.41 ms, p95   6.63 ms | 8 threads: p50  96.44 ms, p95 133.44 ms,   73 predictions/s

@@ -44,6 +44,15 @@ async def test_model_info_does_not_leak_the_training_distribution(client):
     assert 'training_distribution' not in (await client.get('/model/info')).json()
 
 
+def test_the_served_model_predicts_single_threaded(model_bundle):
+    """The artifact is saved with n_jobs=-1 from training; serving one row
+    across every core was 7x slower than on one."""
+    params = model_bundle.pipeline.get_params()
+    n_jobs = {name: value for name, value in params.items() if name.endswith('n_jobs')}
+    assert n_jobs
+    assert set(n_jobs.values()) == {1}
+
+
 def test_bundle_loads_without_metadata(tmp_path):
     from app.core.config import settings
 
