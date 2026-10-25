@@ -36,24 +36,6 @@ class PredictionRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def log(
-        self,
-        *,
-        user_id: int | None,
-        features: dict,
-        predicted_price: float,
-        cache_hit: bool,
-    ) -> Prediction:
-        prediction = Prediction(
-            user_id=user_id,
-            predicted_price=predicted_price,
-            cache_hit=cache_hit,
-            **features,
-        )
-        self._session.add(prediction)
-        await self._session.commit()
-        return prediction
-
     async def history(
         self,
         *,
