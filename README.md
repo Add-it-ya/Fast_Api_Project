@@ -40,8 +40,8 @@ flowchart TB
     graf["Grafana"]
 
     client --> mw --> auth --> rl --> routes --> services
-    services -->|"cache hit ~8ms"| redis
-    services -->|"miss ~240ms"| model
+    services -->|"cache hit, ~4 ms"| redis
+    services -->|"miss, ~10 ms"| model
     services --> repos --> pg
     services -.->|"queued, batched"| repos
     rl --> redis
@@ -264,9 +264,10 @@ p95, 5xx rate, model version. Model health: prediction latency split by cache
 outcome, model inference time on its own, feature drift PSI, live error against
 training, predictions by company, and the prediction log writer.
 
-Splitting latency by cache outcome is the panel that earns its place — a cache
-hit runs around 8 ms and a miss around 240 ms, so a single blended p95 mostly
-measures the hit ratio rather than anything about the service.
+Latency is split by cache outcome because the two differ: at one client a hit
+takes about 4 ms end to end and a miss about 10 ms
+([benchmarks/cache](benchmarks/cache/)), so a single blended p95 mostly shows
+the hit ratio.
 
 ### Custom metrics
 

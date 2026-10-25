@@ -5,9 +5,10 @@
 ## Context
 
 The model is deterministic: the same twelve features always produce the same
-price. Repeated feature vectors are therefore pure waste, and in a used-car
-marketplace repetition is common — popular models in popular configurations get
-priced over and over.
+price, so computing a repeated feature vector again is wasted work. How often
+real traffic repeats an exact vector is unknown. Kilometres driven is part of
+it, so a repeat needs the same car described the same way, for example one
+listing priced again.
 
 ## Decision
 
@@ -20,14 +21,20 @@ cache gives, and memory use four times higher. A restart would also empty it.
 
 ## Consequences
 
-Measured hit latency is around 8 ms against roughly 240 ms for a miss, so the
-cache is worth having and the two are worth measuring separately —
-`prediction_latency_seconds` is labelled by outcome for that reason. A blended
-p95 mostly reports the hit ratio rather than anything about the service.
+Measured with model v4 on 4 workers ([benchmarks/cache](../../benchmarks/cache/)),
+median end-to-end latency for a hit is 3.7 ms against 10.1 ms for a miss at one
+client, and 14.9 ms against 36.5 ms at ten. A hit saves the model call, the
+DataFrame it needs and the thread hand-off. That is worth keeping, but it is a
+few milliseconds, not an order of magnitude.
 
-Redis becomes a dependency of the read path. It is checked by `/ready`, and a
-Redis outage currently fails the prediction rather than degrading to a direct
-model call. That is a gap, and the fix is small: treat a cache error as a miss.
+The benefit scales with the hit ratio, and the load test sets that itself by
+replaying a fixed pool of vectors. A real hit ratio would have to be read off
+`predictions_total{cache=...}` in production. The two outcomes are measured
+separately, `prediction_latency_seconds` is labelled by outcome, because a
+blended p95 mostly reports the hit ratio.
+
+Redis is on the read path but is not required for it: a cache error counts as
+a miss and the model answers, and `redis_errors_total` records the failure.
 
 Cached values are JSON. The original implementation round-tripped them through
 `str()` and `eval()`, which executes whatever is in the cache — anything able to

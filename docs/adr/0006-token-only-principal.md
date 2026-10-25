@@ -6,7 +6,7 @@
 
 `get_current_user` loaded the user row on every authenticated request to confirm
 they still existed. Measured against `/health`, that lookup cost about 2.2 ms
-per request — on a path where a cache hit is around 8 ms end to end, it was a
+per request — on a path where a cache hit is around 4 ms end to end, it was a
 meaningful share of the work, and it put the database on every request whether
 or not the handler needed it.
 

@@ -9,8 +9,8 @@ healthy as an ML service rather than as a web server.
 
 from prometheus_client import Counter, Histogram
 
-# Sub-millisecond buckets matter here: a cache hit is expected to land near
-# 1 ms, and the default instrumentator buckets start too coarse to show it.
+# Fine low buckets matter here: a cache hit lands around 3-4 ms end to end,
+# and the default instrumentator buckets start too coarse to show it.
 LATENCY_BUCKETS = (0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
 
 PREDICTION_LATENCY = Histogram(

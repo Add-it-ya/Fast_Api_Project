@@ -38,7 +38,8 @@ from app.schemas.prediction import (  # noqa: E402
 BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
 CONCURRENCY = int(os.getenv('CONCURRENCY', '100'))
 TOTAL_REQUESTS = int(os.getenv('TOTAL_REQUESTS', '1000'))
-# Size of the pool of distinct feature vectors. Smaller means more cache hits.
+# Size of the pool of distinct feature vectors. Smaller means more cache hits;
+# the hit ratio a run reports is set here, not by anything about real traffic.
 UNIQUE_VECTORS = int(os.getenv('UNIQUE_VECTORS', '200'))
 USERNAME = os.getenv('LOAD_TEST_USER', 'loadtester')
 PASSWORD = os.getenv('LOAD_TEST_PASSWORD', 'load-test-password')

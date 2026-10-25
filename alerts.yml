@@ -34,7 +34,11 @@ groups:
           description: 'p95 is {{ $value | humanizeDuration }}. Check saturation before blaming the model.'
 
       - alert: CacheHitRatioCollapsed
+        # The first condition stops an idle API from firing: with no traffic
+        # the ratio below is 0 / 0.001, which is under any threshold.
         expr: |
+          sum(rate(predictions_total[15m])) > 0.1
+          and
           sum(rate(predictions_total{cache="hit"}[15m]))
             / clamp_min(sum(rate(predictions_total[15m])), 0.001) < 0.2
         for: 15m
