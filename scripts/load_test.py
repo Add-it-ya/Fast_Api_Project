@@ -1,13 +1,23 @@
-"""Load test for POST /predict.
+"""Load test for POST /predict, or GET /health for the host's ceiling.
 
-Logs in once, warms the cache, then fires TOTAL_REQUESTS across CONCURRENCY
-workers and reports p50/p95/p99/max.
+Logs in once, sends one warm-up request, then fires TOTAL_REQUESTS across
+CONCURRENCY concurrent clients and reports p50/p95/p99/max.
 
 Cache hits and cache misses are reported separately. A run made entirely of
 repeated feature vectors measures Redis, not the model, and would produce a
-p95 that says nothing about the inference path.
+p95 that says nothing about the inference path. UNIQUE_VECTORS=0 makes every
+request a different car, so every prediction is a model call.
+
+TARGET=health fires GET /health instead: no authentication, database or
+model. It measures what the server and this host can do at all, which bounds
+every /predict figure.
+
+The client cannot see how many workers the server runs, so set
+SERVER_WORKERS (and GIT_SHA) to have them recorded in the result file next to
+the model version the API reports.
 
     CONCURRENCY=100 TOTAL_REQUESTS=1000 python scripts/load_test.py
+    UNIQUE_VECTORS=0 SERVER_WORKERS=4 python scripts/load_test.py
 """
 
 import asyncio
@@ -40,7 +50,11 @@ CONCURRENCY = int(os.getenv('CONCURRENCY', '100'))
 TOTAL_REQUESTS = int(os.getenv('TOTAL_REQUESTS', '1000'))
 # Size of the pool of distinct feature vectors. Smaller means more cache hits;
 # the hit ratio a run reports is set here, not by anything about real traffic.
+# 0 means a new vector for every request.
 UNIQUE_VECTORS = int(os.getenv('UNIQUE_VECTORS', '200'))
+TARGET = os.getenv('TARGET', 'predict')
+SERVER_WORKERS = os.getenv('SERVER_WORKERS', 'unknown')
+GIT_SHA = os.getenv('GIT_SHA', 'unknown')
 USERNAME = os.getenv('LOAD_TEST_USER', 'loadtester')
 PASSWORD = os.getenv('LOAD_TEST_PASSWORD', 'load-test-password')
 # Fresh vectors per run by default, so a repeat run is not silently measuring a
@@ -106,28 +120,48 @@ async def authenticate(client: httpx.AsyncClient) -> str:
 async def fire(client, semaphore, headers, payload) -> tuple[float, int, bool]:
     async with semaphore:
         started = time.perf_counter()
-        response = await client.post('/predict', json=payload, headers=headers)
+        if payload is None:
+            response = await client.get('/health')
+        else:
+            response = await client.post('/predict', json=payload, headers=headers)
         elapsed_ms = (time.perf_counter() - started) * 1000
 
     cached = False
-    if response.status_code == 200:
+    if payload is not None and response.status_code == 200:
         cached = response.json().get('cached', False)
     return elapsed_ms, response.status_code, cached
 
 
-async def main() -> None:
-    rng = random.Random(SEED)
+def build_payloads(rng: random.Random) -> list[dict | None]:
+    if TARGET == 'health':
+        return [None] * TOTAL_REQUESTS
+    if UNIQUE_VECTORS == 0:
+        return [build_vector(rng) for _ in range(TOTAL_REQUESTS)]
     pool = [build_vector(rng) for _ in range(UNIQUE_VECTORS)]
-    payloads = [pool[rng.randrange(UNIQUE_VECTORS)] for _ in range(TOTAL_REQUESTS)]
+    return [pool[rng.randrange(UNIQUE_VECTORS)] for _ in range(TOTAL_REQUESTS)]
+
+
+async def main() -> None:
+    if TARGET not in ('predict', 'health'):
+        raise SystemExit(f'TARGET must be predict or health, not {TARGET!r}')
+    rng = random.Random(SEED)
+    payloads = build_payloads(rng)
 
     limits = httpx.Limits(max_connections=CONCURRENCY, max_keepalive_connections=CONCURRENCY)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=60.0, limits=limits) as client:
-        token = await authenticate(client)
-        headers = {'Authorization': f'Bearer {token}'}
+        info = await client.get('/model/info')
+        model_version = info.json().get('version') if info.status_code == 200 else None
 
-        warmup = await client.post('/predict', json=pool[0], headers=headers)
-        if warmup.status_code != 200:
-            raise SystemExit(f'Warm-up request failed: {warmup.status_code} {warmup.text}')
+        headers = {}
+        if TARGET == 'predict':
+            headers = {'Authorization': f'Bearer {await authenticate(client)}'}
+
+        # One request before the clock starts, so connection setup and any
+        # lazy initialisation on the server are not counted against the run.
+        warmup_payload = None if TARGET == 'health' else build_vector(random.Random(0))
+        warmup = await fire(client, asyncio.Semaphore(1), headers, warmup_payload)
+        if warmup[1] != 200:
+            raise SystemExit(f'Warm-up request failed with status {warmup[1]}')
 
         semaphore = asyncio.Semaphore(CONCURRENCY)
         started = time.perf_counter()
@@ -147,7 +181,11 @@ async def main() -> None:
     report = {
         'recorded_at': datetime.now(timezone.utc).isoformat(),
         'config': {
+            'target': TARGET,
             'base_url': BASE_URL,
+            'server_workers': SERVER_WORKERS,
+            'git_sha': GIT_SHA,
+            'model_version': model_version,
             'concurrency': CONCURRENCY,
             'total_requests': TOTAL_REQUESTS,
             'unique_vectors': UNIQUE_VECTORS,
@@ -171,7 +209,7 @@ async def main() -> None:
             'API so the benchmark measures the prediction path, not the limiter.\n'
         )
 
-    print(f'{TOTAL_REQUESTS} requests at concurrency {CONCURRENCY} against {BASE_URL}')
+    print(f'{TOTAL_REQUESTS} {TARGET} requests at concurrency {CONCURRENCY} against {BASE_URL}')
     print(f'wall time {wall_seconds:.2f}s   throughput {report["throughput_rps"]} req/s')
     print(
         f'succeeded {len(ok)}   failed {report["failed"]}   '
@@ -198,7 +236,7 @@ async def main() -> None:
     out_dir = RESULTS_DIR / LABEL
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    out = out_dir / f'loadtest-c{CONCURRENCY}-n{TOTAL_REQUESTS}-{stamp}.json'
+    out = out_dir / f'{TARGET}-c{CONCURRENCY}-n{TOTAL_REQUESTS}-{stamp}.json'
     out.write_text(json.dumps(report, indent=2) + '\n')
     print(f'\nwrote {out.relative_to(REPO_ROOT)}')
 
