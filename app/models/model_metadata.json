@@ -1,9 +1,9 @@
 {
-  "version": 3,
-  "trained_at": "2026-09-01T18:04:08.177957+00:00",
+  "version": 4,
+  "trained_at": "2026-10-25T13:17:19.692790+00:00",
   "model_type": "RandomForestRegressor",
   "hyperparameters": {
-    "n_estimators": 100,
+    "n_estimators": 50,
     "max_depth": 12,
     "random_state": 42,
     "n_jobs": -1
@@ -36,10 +36,10 @@
     ]
   },
   "metrics": {
-    "mae": 71365.84,
-    "rmse": 123264.11,
-    "r2": 0.9307,
-    "mape_pct": 17.76
+    "mae": 71407.0,
+    "rmse": 122919.84,
+    "r2": 0.9311,
+    "mape_pct": 17.8
   },
   "baseline_metrics": {
     "mae": 275313.48,
@@ -290,5 +290,5 @@
       }
     }
   },
-  "artifact_bytes": 3398723
+  "artifact_bytes": 1667675
 }

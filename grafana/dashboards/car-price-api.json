@@ -352,7 +352,7 @@
         },
         {
           "refId": "B",
-          "expr": "71366",
+          "expr": "71407",
           "legendFormat": "training MAE"
         }
       ]

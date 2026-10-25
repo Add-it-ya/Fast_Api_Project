@@ -319,13 +319,15 @@ file recording what produced it: version, training date, data hash, the
 scikit-learn version it was pickled with, validation metrics, and the training
 feature distribution. `GET /model/info` serves that at runtime.
 
-Held-out metrics, against a baseline that predicts the training mean:
+The forest's size was picked by 5-fold cross-validation on the training rows
+(`training/sweep.py`), and the held-out rows were scored once afterwards, against
+a baseline that predicts the training mean:
 
-| | model | mean baseline |
-|---|---:|---:|
-| MAE | ₹71,366 | ₹275,313 |
-| R² | **0.93** | -0.00 |
-| MAPE | **17.76%** | 106.58% |
+| | model | mean baseline | CV on training rows |
+|---|---:|---:|---:|
+| MAE | ₹71,407 | ₹275,313 | ₹81,127 |
+| R² | **0.93** | -0.00 | 0.89 |
+| MAPE | **17.80%** | 106.58% | 18.02% |
 
 The baseline is there on purpose — an R² of 0.93 means little until you know
 what predicting the average would have scored.

@@ -28,7 +28,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -43,21 +43,21 @@ from training.train_utils import (  # noqa: E402
     file_sha256,
 )
 
-# Sized against a measured accuracy/artifact-size curve on this 5,540-row
-# training set. 200 trees at depth 18 produced a 16 MB artifact with no better
-# error than this: MAE 71,466 there against 71,366 here. Past roughly this
-# point the forest is memorising, not learning, and only the file grows.
-HYPERPARAMETERS = {'n_estimators': 100, 'max_depth': 12, 'random_state': 42, 'n_jobs': -1}
+# Chosen by training/sweep.py: 5-fold cross-validation on the training split,
+# then the smallest artifact within one standard error of the best CV MAE.
+# The best was 200 trees at depth 18 (MAE 80,273 +/- 1,553, 15.7 MB); this is
+# 81,127 at 1.7 MB. Results in docs/model_sweep.txt.
+HYPERPARAMETERS = {'n_estimators': 50, 'max_depth': 12, 'random_state': 42, 'n_jobs': -1}
 
 # Trades a little load time for a much smaller artifact - roughly 5x on this
 # forest. The model is committed to the repository, so its size is a real cost.
 COMPRESS_LEVEL = 3
 
 
-def build_pipeline(numeric: list[str], categorical: list[str]) -> Pipeline:
-    numeric_steps = Pipeline(
-        steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]
-    )
+def build_pipeline(numeric: list[str], categorical: list[str], forest: dict | None = None) -> Pipeline:
+    # No scaler: a forest splits on thresholds, so rescaling a feature changes
+    # nothing it learns.
+    numeric_steps = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
     categorical_steps = Pipeline(
         steps=[
             ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
@@ -67,7 +67,9 @@ def build_pipeline(numeric: list[str], categorical: list[str]) -> Pipeline:
     preprocessor = ColumnTransformer(
         transformers=[('num', numeric_steps, numeric), ('cat', categorical_steps, categorical)]
     )
-    return Pipeline(steps=[('pre', preprocessor), ('reg', RandomForestRegressor(**HYPERPARAMETERS))])
+    return Pipeline(
+        steps=[('pre', preprocessor), ('reg', RandomForestRegressor(**(forest or HYPERPARAMETERS)))]
+    )
 
 
 def score(y_true, y_pred) -> dict:
@@ -130,13 +132,20 @@ def next_version() -> int:
         return 1
 
 
+def load_frame() -> pd.DataFrame:
+    return pd.read_csv(DATA_FILE_PATH).drop_duplicates().drop(columns=DROPPED_COLUMNS)
+
+
+def load_split():
+    """The one train/test split everything uses. The test rows are scored
+    once, by main(); model selection in training/sweep.py never sees them."""
+    frame = load_frame()
+    return train_test_split(frame.drop(columns=TARGET), frame[TARGET].copy(), test_size=0.2, random_state=42)
+
+
 def main() -> None:
-    frame = pd.read_csv(DATA_FILE_PATH).drop_duplicates().drop(columns=DROPPED_COLUMNS)
-
-    features = frame.drop(columns=TARGET)
-    target = frame[TARGET].copy()
-
-    x_train, x_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+    frame = load_frame()
+    x_train, x_test, y_train, y_test = load_split()
 
     numeric = x_train.select_dtypes(include='number').columns.tolist()
     categorical = [c for c in x_train.columns if c not in numeric]

@@ -1,4 +1,4 @@
-# 2026-10-25T13:12Z, git 20585ba, Docker Desktop, carprice:dev image
+# 2026-10-25T13:12Z, git 20585ba, Docker Desktop, carprice:dev image (model v3: 100 trees, depth 12)
 ## run 1
 12 cpus, artifact saved with n_jobs=-1
 n_jobs=-1  one at a time: p50  30.08 ms, p95  33.43 ms | 8 threads: p50 193.65 ms, p95 237.72 ms,   38 predictions/s
@@ -11,3 +11,17 @@ n_jobs=1   one at a time: p50   4.25 ms, p95   6.48 ms | 8 threads: p50  97.31 m
 12 cpus, artifact saved with n_jobs=-1
 n_jobs=-1  one at a time: p50  29.74 ms, p95  33.71 ms | 8 threads: p50 200.17 ms, p95 252.06 ms,   37 predictions/s
 n_jobs=1   one at a time: p50   4.41 ms, p95   6.63 ms | 8 threads: p50  96.44 ms, p95 133.44 ms,   73 predictions/s
+
+# 2026-10-25T13:17Z, model v4 (50 trees, depth 12), same machine
+## run 1
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  18.31 ms, p95  21.21 ms | 8 threads: p50 131.92 ms, p95 168.30 ms,   55 predictions/s
+n_jobs=1   one at a time: p50   3.11 ms, p95   4.85 ms | 8 threads: p50  56.27 ms, p95  85.88 ms,  115 predictions/s
+## run 2
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  18.39 ms, p95  22.60 ms | 8 threads: p50 132.37 ms, p95 167.39 ms,   55 predictions/s
+n_jobs=1   one at a time: p50   3.19 ms, p95   5.13 ms | 8 threads: p50  58.00 ms, p95  87.84 ms,  112 predictions/s
+## run 3
+12 cpus, artifact saved with n_jobs=-1
+n_jobs=-1  one at a time: p50  18.15 ms, p95  20.80 ms | 8 threads: p50 132.70 ms, p95 167.44 ms,   55 predictions/s
+n_jobs=1   one at a time: p50   3.08 ms, p95   4.68 ms | 8 threads: p50  59.74 ms, p95  91.30 ms,  108 predictions/s
