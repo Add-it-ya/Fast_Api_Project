@@ -22,7 +22,6 @@ from app.schemas.prediction import (
     PredictionRecord,
     PredictionResponse,
 )
-from app.services.drift import monitor
 from app.services.model_service import PredictionService
 from app.services.prediction_writer import writer
 
@@ -47,8 +46,6 @@ async def predict_price(
     PREDICTION_LATENCY.labels(cache=outcome).observe(time.perf_counter() - started)
     PREDICTIONS.labels(company=features['company'], cache=outcome).inc()
     PREDICTION_VALUE.observe(price)
-
-    monitor.observe(features)
 
     prediction_id = uuid.uuid4()
     writer.enqueue(

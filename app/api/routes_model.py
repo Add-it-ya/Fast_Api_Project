@@ -46,16 +46,18 @@ async def model_drift(
     recompute: bool = Query(default=False),
     api_key: str | None = Depends(api_key_scheme),
 ):
-    """Population Stability Index of live features against training.
+    """Population Stability Index of the newest predictions' features
+    against training.
 
     Under 0.1 is stable, 0.1-0.25 a moderate shift, above 0.25 significant.
-    Reading the last result is open; forcing a recompute costs CPU, so it
-    needs the operator key.
+    The result is refreshed every minute in the background; reading it is
+    open. Forcing a recompute reads the database and costs CPU, so it needs
+    the operator key.
     """
     if not recompute:
         return monitor.snapshot()
     await require_api_key(api_key)
-    return monitor.refresh()
+    return await monitor.refresh()
 
 
 @router.get('/model/performance', response_model=ModelPerformance)

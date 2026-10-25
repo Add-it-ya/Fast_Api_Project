@@ -335,9 +335,11 @@ what predicting the average would have scored.
 
 ### Drift detection
 
-`GET /model/drift` reports **Population Stability Index** per feature against
-the training distribution, and exports `model_feature_drift_psi{feature=...}` to
-Prometheus. Under 0.1 is stable, 0.1–0.25 moderate, above 0.25 significant.
+`GET /model/drift` reports **Population Stability Index** per feature for the
+newest 2,000 predictions in the prediction log, against the training
+distribution, and exports `model_feature_drift_psi{feature=...}` to Prometheus.
+Every worker reads the same rows, so they agree, and a background task
+recomputes it every minute. Under 0.1 is stable, 0.1–0.25 moderate, above 0.25 significant.
 Input drift is the earliest available warning: accuracy cannot be measured until
 real outcomes come back, but the input distribution shifts immediately.
 
@@ -458,7 +460,7 @@ measured and what it cost.
 | [Batch the prediction log](docs/adr/0004-batch-the-prediction-log.md) | A commit per request on the critical path | Queued rows are lost on crash |
 | [Index column order](docs/adr/0005-composite-index-column-order.md) | Equality first, sort last, so one index serves both | 38 MB, maintained on every insert |
 | [Token-only principal](docs/adr/0006-token-only-principal.md) | A database lookup on every request cost ~2.2 ms | Deleted users keep access until expiry |
-| [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | Per-worker windows; needs 200+ samples |
+| [PSI for drift](docs/adr/0007-psi-for-drift-detection.md) | Inputs shift before accuracy can be measured | A count-based window; needs 200+ samples |
 
 Two of these were arrived at by measuring a worse alternative first: per-request
 `BackgroundTasks` was slower than batching, and more uvicorn workers made
@@ -490,8 +492,8 @@ throughput *worse* until the connection pool was resized.
   told was saved.
 - **A deleted user keeps access until their token expires** (up to 30 minutes) —
   inherent to stateless JWT.
-- **Drift state is per-worker and in memory.** Prometheus sees one series per
-  worker; alert on the maximum, not on a single number.
+- **The drift window is a count, not a time span.** It is the newest 2,000
+  predictions, however old, so with little traffic it can stretch back weeks.
 - **A Redis outage switches off rate limiting.** The cache and the limiter
   both fail open: predictions fall back to the model, and nothing is throttled
   until Redis returns. That keeps login and prediction available, at the cost

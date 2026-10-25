@@ -145,10 +145,9 @@ Raw output from three runs of each, made with `scripts/inference_benchmark.py`, 
 Drift is the earlier signal of the two: input distributions shift immediately,
 whereas accuracy cannot be measured until outcomes come back.
 
-Each API worker keeps its own drift window in memory, so with several workers
-Prometheus sees one series per worker. Each is an independent estimate from its
-own random share of traffic; alert on the maximum across them rather than
-expecting a single number.
+Drift is computed over the newest 2,000 predictions in the prediction log, so
+every worker reports the same figure and it survives restarts. A background
+task recomputes it every minute.
 
 ## Reproducing
 

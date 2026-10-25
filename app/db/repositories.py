@@ -132,6 +132,21 @@ class PredictionRepository:
             'mape_pct': round(float(row.mape), 2) if row.mape is not None else None,
         }
 
+    async def recent_inputs(self, columns: list[str], limit: int) -> list[dict]:
+        """The given feature columns of the newest `limit` predictions.
+
+        Newest by id rather than created_at: ids grow in insertion order, and
+        the primary key index serves the ORDER BY, so this reads `limit` rows
+        instead of sorting the table.
+        """
+        statement = (
+            select(*(getattr(Prediction, column) for column in columns))
+            .order_by(Prediction.id.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [dict(row._mapping) for row in result]
+
     async def log_many(self, rows: list[dict]) -> int:
         """Insert a batch of prediction rows in a single statement.
 

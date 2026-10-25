@@ -39,8 +39,15 @@ it against traffic that should have read as stable:
 
 `min_samples` is 200. PSI on a small window is noise, not measurement.
 
-Each worker keeps its own window in memory, so Prometheus sees one series per
-worker. Each is an independent estimate from that worker's share of traffic;
-alert on the maximum. Sharing the window through Redis would unify it at the
-cost of putting a write back on the request path that
-[0004](0004-batch-the-prediction-log.md) worked to remove.
+The live sample is the newest 2,000 rows of the prediction log, which already
+stores every request's features. Every worker computes the same answer from
+the same rows, it survives restarts, and `/predict` does no drift work at all.
+A background task refreshes it every minute so the gauges move without anyone
+calling the endpoint. An earlier version kept a window in each worker's memory
+instead, which meant each worker scored only its own share of the traffic and
+forgot it on restart.
+
+The window is a count, not a time span. With little traffic it can stretch
+back weeks, and a burst of unusual requests can fill it quickly. Rows only
+count once the batching writer has flushed them, a moment after each
+response.

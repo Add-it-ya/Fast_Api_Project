@@ -12,28 +12,35 @@ training rows in that bin:
 
 The conventional reading is < 0.1 stable, 0.1-0.25 moderate shift,
 > 0.25 significant shift.
+
+The live sample is the newest predictions in the prediction log, which holds
+every request's inputs already. Reading it from there gives one answer for the
+whole service, whichever worker computes it, and it survives restarts.
 """
 
+import asyncio
 import logging
 import math
-from collections import deque
-from threading import Lock
 
 from prometheus_client import Gauge
 
+from app.db.repositories import PredictionRepository
+from app.db.session import SessionFactory
+
 logger = logging.getLogger(__name__)
 
+# Every worker computes the same figures from the same rows, so 'max' just
+# reports them once.
 DRIFT_PSI = Gauge(
     'model_feature_drift_psi',
     'Population Stability Index of a live feature against its training distribution',
     ['feature'],
-    # Each worker samples its own share of traffic; alert on the worst of them.
     multiprocess_mode='max',
 )
 DRIFT_SAMPLES = Gauge(
     'model_drift_window_samples',
-    'Observations in the current drift detection window',
-    multiprocess_mode='livesum',
+    'Predictions in the current drift detection window',
+    multiprocess_mode='max',
 )
 
 STABLE = 0.1
@@ -64,115 +71,103 @@ def psi(expected: list[float], actual: list[float]) -> float:
     return total
 
 
+def feature_scores(reference: dict, sample: list[dict]) -> dict[str, float]:
+    """PSI per feature of `sample` against the training reference."""
+    scores: dict[str, float] = {}
+
+    for column, spec in reference.get('numeric', {}).items():
+        values = [row[column] for row in sample if isinstance(row.get(column), int | float)]
+        if not values:
+            continue
+        edges = spec['edges']
+        counts = [0] * (len(edges) - 1)
+        for value in values:
+            counts[_bucket(value, edges)] += 1
+        actual = [c / len(values) for c in counts]
+        scores[column] = psi(spec['proportions'], actual)
+
+    for column, expected_map in reference.get('categorical', {}).items():
+        values = [row[column] for row in sample if row.get(column) is not None]
+        if not values:
+            continue
+
+        # Categories the model barely saw in training have expected
+        # proportions near zero, so a single occurrence sends ln(a/e) to
+        # the moon. Collapse them, and anything unseen, into one bucket.
+        categories = [c for c, p in expected_map.items() if p >= MIN_EXPECTED_SHARE]
+        other_expected = sum(p for p in expected_map.values() if p < MIN_EXPECTED_SHARE)
+
+        observed = dict.fromkeys(categories, 0)
+        other = 0
+        for value in values:
+            key = value if value in observed else str(value)
+            if key in observed:
+                observed[key] += 1
+            else:
+                other += 1
+
+        total = len(values)
+        expected = [expected_map[c] for c in categories] + [other_expected]
+        actual = [observed[c] / total for c in categories] + [other / total]
+        scores[column] = psi(expected, actual)
+
+    return scores
+
+
+def report(reference: dict, scores: dict[str, float], samples: int, min_samples: int) -> dict:
+    ready = bool(reference) and samples >= min_samples and bool(scores)
+    shown = scores if ready else {}
+    worst = max(shown.values(), default=0.0)
+    return {
+        'configured': bool(reference),
+        'window_samples': samples,
+        'min_samples': min_samples,
+        'ready': ready,
+        'worst_psi': round(worst, 4),
+        'status': classify(worst) if shown else 'unknown',
+        'features': [
+            {'feature': name, 'psi': round(value, 4), 'status': classify(value)}
+            for name, value in sorted(shown.items(), key=lambda kv: -kv[1])
+        ],
+    }
+
+
 class DriftMonitor:
-    def __init__(self, window: int = 2000, min_samples: int = 200, recompute_every: int = 100):
-        self._observations: deque[dict] = deque(maxlen=window)
-        self._reference: dict = {}
-        self._latest: dict = {}
-        self._seen_since_refresh = 0
+    def __init__(self, window: int = 2000, min_samples: int = 200):
+        self._window = window
         self._min_samples = min_samples
-        self._recompute_every = recompute_every
-        self._lock = Lock()
+        self._reference: dict = {}
+        self._latest = report({}, {}, 0, min_samples)
 
     @property
     def configured(self) -> bool:
         return bool(self._reference)
 
     def configure(self, training_distribution: dict) -> None:
-        with self._lock:
-            self._reference = training_distribution or {}
-            self._observations.clear()
-            self._latest = {}
-            self._seen_since_refresh = 0
-
-    def observe(self, features: dict) -> None:
-        if not self._reference:
-            return
-        with self._lock:
-            self._observations.append(features)
-            self._seen_since_refresh += 1
-            due = (
-                self._seen_since_refresh >= self._recompute_every
-                and len(self._observations) >= self._min_samples
-            )
-        if due:
-            self.refresh()
-
-    def refresh(self) -> dict:
-        with self._lock:
-            sample = list(self._observations)
-            reference = self._reference
-            self._seen_since_refresh = 0
-
-        if not reference or len(sample) < self._min_samples:
-            return self.snapshot()
-
-        scores: dict[str, float] = {}
-
-        for column, spec in reference.get('numeric', {}).items():
-            values = [row[column] for row in sample if isinstance(row.get(column), int | float)]
-            if not values:
-                continue
-            edges = spec['edges']
-            counts = [0] * (len(edges) - 1)
-            for value in values:
-                index = _bucket(value, edges)
-                counts[index] += 1
-            actual = [c / len(values) for c in counts]
-            scores[column] = psi(spec['proportions'], actual)
-
-        for column, expected_map in reference.get('categorical', {}).items():
-            values = [row[column] for row in sample if row.get(column) is not None]
-            if not values:
-                continue
-
-            # Categories the model barely saw in training have expected
-            # proportions near zero, so a single occurrence sends ln(a/e) to
-            # the moon. Collapse them, and anything unseen, into one bucket.
-            categories = [c for c, p in expected_map.items() if p >= MIN_EXPECTED_SHARE]
-            other_expected = sum(p for p in expected_map.values() if p < MIN_EXPECTED_SHARE)
-
-            observed = dict.fromkeys(categories, 0)
-            other = 0
-            for value in values:
-                key = value if value in observed else str(value)
-                if key in observed:
-                    observed[key] += 1
-                else:
-                    other += 1
-
-            total = len(values)
-            expected = [expected_map[c] for c in categories] + [other_expected]
-            actual = [observed[c] / total for c in categories] + [other / total]
-            scores[column] = psi(expected, actual)
-
-        with self._lock:
-            self._latest = {k: round(v, 4) for k, v in scores.items()}
-
-        for feature, value in scores.items():
-            DRIFT_PSI.labels(feature=feature).set(value)
-        DRIFT_SAMPLES.set(len(sample))
-
-        return self.snapshot()
+        self._reference = training_distribution or {}
+        self._latest = report(self._reference, {}, 0, self._min_samples)
 
     def snapshot(self) -> dict:
-        with self._lock:
-            scores = dict(self._latest)
-            samples = len(self._observations)
+        return self._latest
 
-        worst = max(scores.values(), default=0.0)
-        return {
-            'configured': bool(self._reference),
-            'window_samples': samples,
-            'min_samples': self._min_samples,
-            'ready': samples >= self._min_samples and bool(scores),
-            'worst_psi': round(worst, 4),
-            'status': classify(worst) if scores else 'unknown',
-            'features': [
-                {'feature': name, 'psi': value, 'status': classify(value)}
-                for name, value in sorted(scores.items(), key=lambda kv: -kv[1])
-            ],
-        }
+    async def refresh(self) -> dict:
+        """Score the newest `window` predictions against training."""
+        if not self._reference:
+            return self.snapshot()
+
+        columns = [*self._reference.get('numeric', {}), *self._reference.get('categorical', {})]
+        async with SessionFactory() as session:
+            sample = await PredictionRepository(session).recent_inputs(columns, self._window)
+
+        # Pure CPU work over a couple of thousand rows; kept off the event loop.
+        scores = await asyncio.to_thread(feature_scores, self._reference, sample)
+        self._latest = report(self._reference, scores, len(sample), self._min_samples)
+
+        DRIFT_SAMPLES.set(len(sample))
+        if self._latest['ready']:
+            for feature, value in scores.items():
+                DRIFT_PSI.labels(feature=feature).set(value)
+        return self._latest
 
 
 def _bucket(value: float, edges: list[float]) -> int:
