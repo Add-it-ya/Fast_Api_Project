@@ -277,7 +277,7 @@ the hit ratio.
 | `model_inference_seconds` | Is the model slow, or the service around it? |
 | `predictions_total{company,cache}` | What is actually being asked about? |
 | `model_feature_drift_psi{feature}` | Has traffic stopped looking like the training data? |
-| `model_live_mae` | Is the model still right, against reported outcomes? |
+| `model_live_mae`, `model_training_mae` | Is the model still right, against reported outcomes, compared with how it trained? |
 | `prediction_log_rows_written_total` / `_dropped_total` / `_queue_depth` | Is the async writer keeping up? |
 | `model_version`, `model_sklearn_version_match` | Which model is loaded, and is it safe to load? |
 | `redis_errors_total{operation}` | Is Redis down while the service carries on without it? |
@@ -363,7 +363,8 @@ after shifted traffic:
 logged prediction, using the `prediction_id` that `/predict` returned. It needs
 the operator key and refuses to overwrite a price already recorded.
 `GET /model/performance` reports live error over recent scored predictions next
-to the training metrics, and exports `model_live_mae`.
+to the training metrics. The same live error is exported as `model_live_mae`,
+recomputed every minute in the background, next to `model_training_mae`.
 
 ### Version safety
 

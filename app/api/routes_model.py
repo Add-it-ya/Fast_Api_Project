@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, Query, Request
-from prometheus_client import Gauge
 
 from app.core.dependencies import (
     Principal,
@@ -14,17 +13,6 @@ from app.schemas.model import DriftReport, ModelInfo, ModelPerformance
 from app.services.drift import monitor
 
 router = APIRouter()
-
-LIVE_MAE = Gauge(
-    'model_live_mae',
-    'Mean absolute error over predictions with a reported outcome',
-    multiprocess_mode='max',
-)
-LIVE_SCORED = Gauge(
-    'model_live_scored_predictions',
-    'Predictions that have a reported outcome',
-    multiprocess_mode='max',
-)
 
 
 @router.get('/model/info', response_model=ModelInfo)
@@ -72,10 +60,6 @@ async def model_performance(
 
     bundle = getattr(request.app.state, 'model_bundle', None)
     training = (bundle.metadata.get('metrics', {}) if bundle else {}) or {}
-
-    if live['mae'] is not None:
-        LIVE_MAE.set(live['mae'])
-    LIVE_SCORED.set(live['scored'])
 
     if live['scored'] == 0:
         note = 'No outcomes reported yet. POST /predictions/{prediction_id}/actual to score a prediction.'

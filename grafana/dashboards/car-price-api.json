@@ -352,7 +352,7 @@
         },
         {
           "refId": "B",
-          "expr": "71407",
+          "expr": "max(model_training_mae)",
           "legendFormat": "training MAE"
         }
       ]

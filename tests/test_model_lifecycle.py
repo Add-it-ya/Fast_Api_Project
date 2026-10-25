@@ -190,3 +190,41 @@ async def test_performance_reports_live_error_against_training(
     assert body['scored'] == 1
     assert body['live_mae'] == pytest.approx(abs(prediction['predicted_price'] - 500000), abs=0.01)
     assert body['training_mae'] > 0
+
+
+async def test_live_error_reaches_metrics_without_anyone_asking(
+    client, auth_headers, operator_headers, valid_car, flush_predictions
+):
+    """The gauge used to change only when GET /model/performance was called,
+    so the dashboard panel sat still however many outcomes came in."""
+    from prometheus_client import REGISTRY
+
+    from app.services.health_refresh import refresher
+
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
+    await client.post(
+        f'/predictions/{prediction["prediction_id"]}/actual',
+        json={'actual_price': 500000},
+        headers=operator_headers,
+    )
+
+    await refresher.refresh_once()
+
+    assert REGISTRY.get_sample_value('model_live_scored_predictions') == 1
+    assert REGISTRY.get_sample_value('model_live_mae') == pytest.approx(
+        abs(prediction['predicted_price'] - 500000), abs=0.01
+    )
+
+
+def test_training_error_is_exported_for_the_dashboard(tmp_path):
+    import math
+
+    from prometheus_client import REGISTRY
+
+    from app.core.config import settings
+
+    bundle = load_bundle(settings.MODEL_PATH, settings.MODEL_METADATA_PATH)
+    assert REGISTRY.get_sample_value('model_training_mae') == bundle.metadata['metrics']['mae']
+
+    load_bundle(settings.MODEL_PATH, str(tmp_path / 'missing.json'))
+    assert math.isnan(REGISTRY.get_sample_value('model_training_mae'))
