@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-10-25T14:28:07.555704+00:00",
+  "config": {
+    "target": "health",
+    "base_url": "http://api:8000",
+    "server_workers": "4",
+    "git_sha": "1851772",
+    "model_version": 4,
+    "concurrency": 10,
+    "total_requests": 1000,
+    "unique_vectors": 200,
+    "seed": 1488236681,
+    "label": "v4/health-4-workers"
+  },
+  "wall_seconds": 1.339,
+  "throughput_rps": 746.8,
+  "successful": 1000,
+  "failed": 0,
+  "failures_by_status": {},
+  "cache_hit_ratio": 0.0,
+  "overall": {
+    "count": 1000,
+    "mean_ms": 12.89,
+    "p50_ms": 9.73,
+    "p95_ms": 22.78,
+    "p99_ms": 105.96,
+    "max_ms": 275.46
+  },
+  "cache_miss": {
+    "count": 1000,
+    "mean_ms": 12.89,
+    "p50_ms": 9.73,
+    "p95_ms": 22.78,
+    "p99_ms": 105.96,
+    "max_ms": 275.46
+  },
+  "cache_hit": {
+    "count": 0
+  }
+}

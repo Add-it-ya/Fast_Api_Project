@@ -1,118 +1,127 @@
 # Optimising the prediction history query
 
-`GET /predictions/history` answers "the most recent predictions for a given
-company and model year":
+`GET /predictions/history` returns the caller's own predictions, newest first:
 
 ```sql
-SELECT id, company, year, fuel, transmission, km_driven,
-       predicted_price, cache_hit, created_at
-FROM predictions
-WHERE company = 'Maruti' AND year = 2015
+SELECT * FROM predictions
+WHERE user_id = 1
 ORDER BY created_at DESC
 LIMIT 50;
 ```
 
-Measured on PostgreSQL 16.15 against 1,010,000 rows (187 MB heap before the
-index), seeded by `scripts/seed_predictions.py`. 1,157 rows match the filter, so
-the query returns roughly 0.1% of the table. Full plans are in
-[explain_before.txt](explain_before.txt) and [explain_after.txt](explain_after.txt).
+`company` and `year` can narrow it further, but this is the shape of every call.
 
-## Before: parallel sequential scan
+Measured on PostgreSQL 16.15 against 1,000,000 rows (about 182 MB of heap),
+seeded by `scripts/seed_predictions.py`. How much an index helps depends on how
+many rows one user has, so it was measured twice on the same row count:
+
+- **heavy accounts:** `--users 5`, about 200,000 predictions each, the kind of
+  volume an integration calling the API all day would build up;
+- **typical accounts:** `--users 1000`, about 1,000 predictions each.
+
+Each figure is the median of six runs after one warm-up. Full plans and every
+run time are in [explain_before.txt](explain_before.txt) and
+[explain_after.txt](explain_after.txt).
+
+## Before: single-column index, then a sort
+
+The previous schema (revision `0004`) had an index on `user_id` alone. It finds
+the user's rows, but in no particular order, so Postgres fetches every one of
+them and sorts to find the newest 50.
+
+For a heavy account that means 199,472 rows from about 8,000 heap pages, spread
+across two parallel workers, then a top-N heapsort:
 
 ```
-Limit  (actual time=24.022..26.067 rows=50 loops=1)
-  Buffers: shared hit=14538 read=5938
-  ->  Gather Merge  (actual time=24.021..26.063 rows=50 loops=1)
-        Workers Planned: 2  Workers Launched: 2
-        ->  Sort  (actual time=21.829..21.833 rows=41 loops=3)
+Limit  (actual time=59.457..63.697 rows=50 loops=1)
+  Buffers: shared hit=35 read=23355
+  ->  Gather Merge
+        ->  Sort  (rows=39 loops=3)
               Sort Key: created_at DESC
-              Sort Method: top-N heapsort  Memory: 35kB
-              ->  Parallel Seq Scan on predictions  (actual time=0.145..21.602 rows=386 loops=3)
-                    Filter: (((company)::text = 'Maruti'::text) AND (year = 2015))
-                    Rows Removed by Filter: 336281
-Execution Time: 26.116 ms
+              Sort Method: top-N heapsort  Memory: 48kB
+              ->  Parallel Bitmap Heap Scan on predictions  (rows=66491 loops=3)
+                    Recheck Cond: (user_id = 1)
+                    ->  Bitmap Index Scan on ix_predictions_user_id  (rows=199472 loops=1)
+Execution Time: 63.819 ms
 ```
 
-With only a primary key on `id`, nothing helps either half of the query. Postgres
-reads the entire table across three parallel workers, and each one throws away
-**336,281 rows** to find its share of the 1,157 matches. It then has to sort what
-survives, because `created_at DESC` has no ordering to inherit. 20,476 buffers
-are touched to return 50 rows.
-
-Repeated runs: 26.1, 28.7, 29.8, 31.6, 33.0 ms.
+For a typical account it is the same plan on about 1,000 rows: 991 buffers and
+2.0 ms.
 
 ## The index
 
 ```sql
-CREATE INDEX ix_predictions_company_year_created_at
-    ON predictions (company, year, created_at DESC);
+CREATE INDEX ix_predictions_user_id_created_at
+    ON predictions (user_id, created_at DESC);
 ```
 
-Applied by Alembic revision `0002`.
+Applied by Alembic revision `0005`.
 
-**Column order is the whole point.** The two equality predicates come first, so a
-b-tree descent lands directly on the `('Maruti', 2015)` range. Within that range
-entries are already stored by `created_at DESC` — the exact order the query asks
-for. One index therefore serves the `WHERE` *and* the `ORDER BY`.
+The equality column comes first, so a b-tree descent lands on the start of
+that user's rows. Inside that range the entries are stored by
+`created_at DESC`, which is the order the query asks for. So one index serves
+the `WHERE` and the `ORDER BY`, and `LIMIT 50` stops after reading 50 entries.
 
-The `DESC` matters less than it looks: Postgres can walk a b-tree backwards, so
-an ascending index would also avoid the sort here. Declaring the direction the
-query uses keeps the intent obvious and matters as soon as a second sort column
-with a different direction appears.
+The other order, `(created_at, user_id)`, would not work: the leading column has
+no filter, so the scan could not narrow to one user before reading.
 
-Ordering the columns the other way round — `(created_at, company, year)` — would
-be close to useless. The leading column would carry no filter, so the scan could
-not narrow to the matching rows before reading them.
+`DESC` is declared to match the query. Postgres can also walk an ascending index
+backwards, so it is not strictly needed for this query.
 
 ## After: index scan, no sort
 
 ```
-Limit  (actual time=0.025..0.154 rows=50 loops=1)
+Limit  (actual time=0.023..0.133 rows=50 loops=1)
   Buffers: shared hit=53
-  ->  Index Scan using ix_predictions_company_year_created_at on predictions
-        (actual time=0.024..0.150 rows=50 loops=1)
-        Index Cond: (((company)::text = 'Maruti'::text) AND (year = 2015))
-        Buffers: shared hit=53
-Execution Time: 0.177 ms
+  ->  Index Scan using ix_predictions_user_id_created_at on predictions
+        Index Cond: (user_id = 1)
+Execution Time: 0.209 ms
 ```
 
-Repeated runs: 0.175, 0.177, 0.178, 0.182, 0.196, 0.276 ms.
+The plan is the same for both kinds of account: 53 buffers, whatever the user's
+total.
 
 ## Result
 
-| | before | after | change |
-|---|---:|---:|---|
-| Execution time | 26.1 ms | 0.177 ms | **147x faster** |
-| Buffers touched | 20,476 | 53 | **386x fewer** |
-| Rows discarded by filter | 336,281 per worker | 0 | — |
-| Parallel workers | 2 | 0 | not needed |
-| Sort node | top-N heapsort | none | eliminated |
+| | heavy accounts, before | after | typical accounts, before | after |
+|---|---:|---:|---:|---:|
+| Median execution time | 62.8 ms | **0.196 ms** | 2.03 ms | **0.163 ms** |
+| Buffers | 23,390 | **53** | 991 | **53** |
+| Rows read to return 50 | 199,472 | 50 | 1,007 | 50 |
+| Sort node | top-N heapsort | none | top-N heapsort | none |
 
-The sort disappearing is the more interesting half. The scan going from
-sequential to indexed is what most people expect from an index; having the same
-index also deliver the rows pre-ordered is what removes the `Sort` node and lets
-`LIMIT 50` stop after 50 rows instead of after sorting every match.
+About **320x** faster for a heavy account and **12x** for a typical one. For an
+ordinary user the single-column index was already fast enough. The composite index matters because the cost before grew
+with the user's row count and now does not. A heavy account would otherwise get
+slower with every prediction it makes.
 
 ## What it costs
 
-The index is 39 MB against a 187 MB table, and it has to be maintained on every
-insert. That is a real cost on a write-heavy table, and this one is written to on
-every prediction — see `PredictionWriter`, which batches those inserts. It is
-worth it here because the read is user-facing and the write is already
-asynchronous and batched.
+The new index is 38 MB on this table and is maintained on every insert. It
+replaces two indexes: the single-column `user_id` index (about 7 MB), which it
+covers, and the old `(company, year, created_at DESC)` index (38 MB) that
+served the previous version of this endpoint. So the table carries less index
+than before. The inserts are already off the request path and batched, see
+`PredictionWriter`.
+
+The `public_id` unique index from revision `0004` is another 37 to 39 MB. That
+is the cost of returning an id from `/predict`. It is not part of this query.
 
 ## Reproducing
 
 ```bash
-docker-compose up -d
-python scripts/seed_predictions.py --rows 1000000 --truncate --compare
-docker exec postgres1 psql -U carprice -d carprice \
-  -c "EXPLAIN (ANALYZE, BUFFERS) SELECT ... ;"
+docker compose up -d postgres
+alembic upgrade head
+python scripts/seed_predictions.py --rows 1000000 --users 5 --truncate
+docker exec postgres1 psql -U carprice -d carprice -c "VACUUM ANALYZE predictions"
+docker exec postgres1 psql -U carprice -d carprice -c \
+  "EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM predictions WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50"
 ```
 
-To see the slow plan again, drop the index (`alembic downgrade 0001`), run
-`ANALYZE predictions`, and repeat. Take a representative run rather than the
-first: a single warm execution is not a measurement.
+For the before plan, run `alembic downgrade 0004`, which only puts the previous
+indexes back, then `VACUUM ANALYZE` and repeat. `alembic upgrade head` restores
+the new index. Run the query a few times and take the median; one warm run is
+not a measurement.
 
 ## Loading the benchmark data
 
@@ -122,10 +131,12 @@ same run:
 
 | method | rows/sec |
 |---|---:|
-| row-by-row `INSERT` | 1,346 |
-| `COPY` (copy time only) | 48,040 |
-| `COPY` end to end, incl. generating the rows in Python | 38,142 |
+| row-by-row `INSERT` | 2,248 |
+| `COPY` (copy time only) | 33,463 |
+| `COPY` end to end, incl. generating the rows in Python | 28,422 |
 
-**36x faster.** Generating the synthetic tuples in Python is a real share of the
+**15x faster.** Raw output in
+[benchmarks/seed/copy_vs_insert.txt](../benchmarks/seed/copy_vs_insert.txt), loading 1,000,000
+rows into the table with its four current indexes. Generating the synthetic tuples in Python is a real share of the
 wall time and says nothing about the database, so the script times it separately
 rather than folding it into the COPY figure.

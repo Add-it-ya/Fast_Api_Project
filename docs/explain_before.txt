@@ -1,27 +1,62 @@
--- PostgreSQL 16.15
--- predictions: 1010000 rows, 187 MB
--- indexes: primary key only
+-- PostgreSQL 16.15, seeded with scripts/seed_predictions.py --rows 1000000 --users N
+
+-- heavy accounts: 5 users, about 200,000 predictions each
+-- user 1 has 199,472 rows; table 1,000,000 rows, about 182 MB heap
+-- schema 0004: ix_predictions_user_id (user_id) only for this query
+-- six runs after one warm-up (ms): 64.459, 63.819, 57.388, 65.394, 59.455, 61.855
+-- median 62.837 ms; the plan below is the run closest to it
 --
 -- EXPLAIN (ANALYZE, BUFFERS)
--- SELECT id, company, year, fuel, transmission, km_driven, predicted_price, cache_hit, created_at FROM predictions WHERE company='Maruti' AND year=2015 ORDER BY created_at DESC LIMIT 50;
+-- SELECT * FROM predictions WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50;
 
-Limit  (cost=27731.30..27737.13 rows=50 width=56) (actual time=24.022..26.067 rows=50 loops=1)
-  Buffers: shared hit=14538 read=5938
-  ->  Gather Merge  (cost=27731.30..27849.14 rows=1010 width=56) (actual time=24.021..26.063 rows=50 loops=1)
+Limit  (cost=30275.39..30281.22 rows=50 width=152) (actual time=59.457..63.697 rows=50 loops=1)
+  Buffers: shared hit=35 read=23355 written=252
+  ->  Gather Merge  (cost=30275.39..49811.89 rows=167444 width=152) (actual time=59.456..63.692 rows=50 loops=1)
         Workers Planned: 2
         Workers Launched: 2
-        Buffers: shared hit=14538 read=5938
-        ->  Sort  (cost=26731.28..26732.54 rows=505 width=56) (actual time=21.829..21.833 rows=41 loops=3)
+        Buffers: shared hit=35 read=23355 written=252
+        ->  Sort  (cost=29275.37..29484.67 rows=83722 width=152) (actual time=56.828..56.835 rows=39 loops=3)
               Sort Key: created_at DESC
-              Sort Method: top-N heapsort  Memory: 35kB
-              Buffers: shared hit=14538 read=5938
-              Worker 0:  Sort Method: top-N heapsort  Memory: 36kB
-              Worker 1:  Sort Method: top-N heapsort  Memory: 35kB
-              ->  Parallel Seq Scan on predictions  (cost=0.00..26714.50 rows=505 width=56) (actual time=0.145..21.602 rows=386 loops=3)
-                    Filter: (((company)::text = 'Maruti'::text) AND (year = 2015))
-                    Rows Removed by Filter: 336281
-                    Buffers: shared hit=14464 read=5938
+              Sort Method: top-N heapsort  Memory: 48kB
+              Buffers: shared hit=35 read=23355 written=252
+              Worker 0:  Sort Method: top-N heapsort  Memory: 46kB
+              Worker 1:  Sort Method: top-N heapsort  Memory: 44kB
+              ->  Parallel Bitmap Heap Scan on predictions  (cost=2241.66..26494.18 rows=83722 width=152) (actual time=6.194..48.723 rows=66491 loops=3)
+                    Recheck Cond: (user_id = 1)
+                    Heap Blocks: exact=7953
+                    Buffers: shared hit=19 read=23355 written=252
+                    ->  Bitmap Index Scan on ix_predictions_user_id  (cost=0.00..2191.42 rows=200933 width=0) (actual time=5.603..5.604 rows=199472 loops=1)
+                          Index Cond: (user_id = 1)
+                          Buffers: shared read=170
 Planning:
-  Buffers: shared hit=130
-Planning Time: 0.553 ms
-Execution Time: 26.116 ms
+  Buffers: shared hit=228 read=8
+Planning Time: 1.099 ms
+Execution Time: 63.819 ms
+
+
+-- typical accounts: 1,000 users, about 1,000 predictions each
+-- user 1 has 1,007 rows; table 1,000,000 rows, about 182 MB heap
+-- schema 0004: ix_predictions_user_id (user_id) only for this query
+-- six runs after one warm-up (ms): 2.09, 2.047, 1.921, 2.12, 1.902, 2.005
+-- median 2.026 ms; the plan below is the run closest to it
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT * FROM predictions WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50;
+
+Limit  (cost=3348.69..3348.82 rows=50 width=152) (actual time=1.877..1.882 rows=50 loops=1)
+  Buffers: shared hit=991
+  ->  Sort  (cost=3348.69..3351.17 rows=992 width=152) (actual time=1.876..1.879 rows=50 loops=1)
+        Sort Key: created_at DESC
+        Sort Method: top-N heapsort  Memory: 47kB
+        Buffers: shared hit=991
+        ->  Bitmap Heap Scan on predictions  (cost=12.11..3315.74 rows=992 width=152) (actual time=0.261..1.730 rows=1007 loops=1)
+              Recheck Cond: (user_id = 1)
+              Heap Blocks: exact=985
+              Buffers: shared hit=988
+              ->  Bitmap Index Scan on ix_predictions_user_id  (cost=0.00..11.87 rows=992 width=0) (actual time=0.171..0.171 rows=1007 loops=1)
+                    Index Cond: (user_id = 1)
+                    Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=236
+Planning Time: 0.989 ms
+Execution Time: 2.005 ms

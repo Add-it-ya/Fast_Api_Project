@@ -10,8 +10,9 @@ notebooks/
 data/
 *.csv
 
-__pycache__/
-*.py[cod]
+# **/ matches at any depth; a bare __pycache__/ only matches the context root.
+**/__pycache__
+**/*.py[cod]
 .venv/
 venv/
 .env

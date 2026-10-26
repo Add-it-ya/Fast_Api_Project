@@ -17,3 +17,6 @@ repos:
       - id: detect-private-key
       - id: check-added-large-files
         args: [--maxkb=1024]
+        # The served model is committed on purpose (1.7 MB); everything else
+        # still has to stay under the limit.
+        exclude: ^app/models/model\.joblib$

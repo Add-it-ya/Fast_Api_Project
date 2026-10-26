@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-10-25T14:27:41.809752+00:00",
+  "config": {
+    "target": "predict",
+    "base_url": "http://api:8000",
+    "server_workers": "4",
+    "git_sha": "1851772",
+    "model_version": 4,
+    "concurrency": 50,
+    "total_requests": 1000,
+    "unique_vectors": 200,
+    "seed": 1602894723,
+    "label": "v4/predict-pool200-4-workers"
+  },
+  "wall_seconds": 5.604,
+  "throughput_rps": 178.5,
+  "successful": 1000,
+  "failed": 0,
+  "failures_by_status": {},
+  "cache_hit_ratio": 0.792,
+  "overall": {
+    "count": 1000,
+    "mean_ms": 271.96,
+    "p50_ms": 174.17,
+    "p95_ms": 848.73,
+    "p99_ms": 1383.85,
+    "max_ms": 2020.95
+  },
+  "cache_miss": {
+    "count": 208,
+    "mean_ms": 227.12,
+    "p50_ms": 172.49,
+    "p95_ms": 591.81,
+    "p99_ms": 991.79,
+    "max_ms": 1173.41
+  },
+  "cache_hit": {
+    "count": 792,
+    "mean_ms": 283.74,
+    "p50_ms": 175.38,
+    "p95_ms": 885.95,
+    "p99_ms": 1511.01,
+    "max_ms": 2020.95
+  }
+}

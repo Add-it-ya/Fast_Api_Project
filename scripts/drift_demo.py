@@ -5,8 +5,9 @@ reports PSI, then sends a batch skewed towards newer low-mileage luxury cars
 and reports PSI again. The first batch should read stable, the second should
 not.
 
-Run the API with WEB_CONCURRENCY=1 for this: each worker keeps its own window,
-so with several workers a single client sees whichever one answers.
+Drift is computed over the newest 2,000 rows of the prediction log, so start
+from an empty predictions table (docker compose down -v) or earlier traffic
+will be part of the window.
 
     BASE_URL=http://localhost:8000 python scripts/drift_demo.py
 """
@@ -31,7 +32,11 @@ API_KEY = os.getenv('API_KEY', 'local-dev-api-key')
 USERNAME = os.getenv('DRIFT_DEMO_USER', 'drift-demo')
 PASSWORD = os.getenv('DRIFT_DEMO_PASSWORD', 'drift-demo-password')
 
-LUXURY = ['BMW', 'Audi', 'Mercedes-Benz', 'Jaguar', 'Volvo', 'Lexus']
+LUXURY = ['BMW', 'Audi', 'Mercedes-Benz', 'Jaguar', 'Volvo']
+
+# Predictions reach the log through a batching writer just after each response,
+# and drift is computed from the log, so give the last batch a moment to land.
+WRITE_DELAY_SECONDS = 1.0
 
 # Near-discrete numeric features are recorded as categorical in the training
 # distribution, so their sampled values come back as strings.
@@ -115,7 +120,7 @@ async def send(client, headers, payloads) -> int:
 
 async def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch', type=int, default=150)
+    parser.add_argument('--batch', type=int, default=300)
     args = parser.parse_args()
 
     rng = random.Random(11)
@@ -126,10 +131,9 @@ async def main() -> None:
         login = await client.post('/login', json=credentials)
         if login.status_code != 200:
             raise SystemExit(f'login failed: {login.status_code} {login.text}')
-        headers = {
-            'Authorization': f'Bearer {login.json()["access_token"]}',
-            'api-key': API_KEY,
-        }
+        headers = {'Authorization': f'Bearer {login.json()["access_token"]}'}
+        # Forcing a drift recompute is an operator action.
+        operator = {'api-key': API_KEY}
 
         info = await client.get('/model/info')
         if info.status_code != 200:
@@ -149,12 +153,20 @@ async def main() -> None:
         in_dist = [sample_in_distribution(reference, rng) for _ in range(args.batch)]
         print(f'\nsending {args.batch} requests drawn from the training distribution...')
         await send(client, headers, in_dist)
-        render('after in-distribution traffic:', (await client.get('/model/drift?recompute=true')).json())
+        await asyncio.sleep(WRITE_DELAY_SECONDS)
+        render(
+            'after in-distribution traffic:',
+            (await client.get('/model/drift?recompute=true', headers=operator)).json(),
+        )
 
         shifted = [sample_shifted(rng) for _ in range(args.batch * 4)]
         print(f'\nsending {len(shifted)} requests skewed to newer luxury cars...')
         await send(client, headers, shifted)
-        render('after shifted traffic:', (await client.get('/model/drift?recompute=true')).json())
+        await asyncio.sleep(WRITE_DELAY_SECONDS)
+        render(
+            'after shifted traffic:',
+            (await client.get('/model/drift?recompute=true', headers=operator)).json(),
+        )
 
 
 if __name__ == '__main__':

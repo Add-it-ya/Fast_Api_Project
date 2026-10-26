@@ -8,6 +8,7 @@ and checked at startup rather than discovered in production.
 
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 MODEL_VERSION = Gauge(
     'model_version', 'Version of the model this process has loaded', multiprocess_mode='max'
+)
+MODEL_TRAINING_MAE = Gauge(
+    'model_training_mae',
+    'Held-out MAE recorded when the loaded model was trained',
+    multiprocess_mode='max',
 )
 MODEL_SKLEARN_MATCH = Gauge(
     'model_sklearn_version_match',
@@ -65,8 +71,21 @@ class ModelBundle:
         }
 
 
+def serve_single_threaded(pipeline: Any) -> None:
+    """Training fits with n_jobs=-1 and the artifact keeps that setting. At
+    serving time each call is one row, and spreading one row's trees across
+    every core costs more than it saves: the median prediction took 30 ms
+    with n_jobs=-1 and 4.3 ms with n_jobs=1 on 12 cores (see
+    benchmarks/inference/). Concurrency comes from running requests side by
+    side, not from splitting one of them."""
+    params = {name: 1 for name in pipeline.get_params() if name == 'n_jobs' or name.endswith('__n_jobs')}
+    if params:
+        pipeline.set_params(**params)
+
+
 def load_bundle(model_path: str, metadata_path: str) -> ModelBundle:
     pipeline = joblib.load(model_path)
+    serve_single_threaded(pipeline)
 
     metadata: dict = {}
     path = Path(metadata_path)
@@ -94,6 +113,9 @@ def load_bundle(model_path: str, metadata_path: str) -> ModelBundle:
         )
 
     MODEL_VERSION.set(metadata.get('version') or 0)
+    # NaN rather than 0 when unknown, so the dashboard shows a gap instead of a
+    # model that is apparently never wrong.
+    MODEL_TRAINING_MAE.set(metadata.get('metrics', {}).get('mae') or math.nan)
     MODEL_SKLEARN_MATCH.set(1 if matches else 0)
 
     return ModelBundle(pipeline=pipeline, metadata=metadata)

@@ -9,11 +9,11 @@ serves the same content at runtime.
 | | |
 |---|---|
 | Task | Regression — predict the selling price of a used car |
-| Algorithm | `RandomForestRegressor` (100 trees, max depth 12) inside a scikit-learn `Pipeline` |
+| Algorithm | `RandomForestRegressor` (50 trees, max depth 12) inside a scikit-learn `Pipeline` |
 | Framework | scikit-learn 1.3.2 |
 | Inputs | 12 features (7 numeric, 5 categorical) |
 | Output | A single price, in Indian rupees |
-| Version | 3 |
+| Version | 4 |
 
 ## Intended use
 
@@ -37,41 +37,82 @@ listings rather than learn from the features.
 
 ## Metrics
 
-On the 1,386 held-out rows, against a baseline that predicts the training mean
-for every car:
+On the 1,386 held-out rows, scored once after the configuration was chosen,
+against a baseline that predicts the training mean for every car. The
+cross-validated estimates from model selection are in the last column:
 
-| | model | mean baseline |
-|---|---:|---:|
-| MAE | ₹71,366 | ₹275,313 |
-| RMSE | ₹123,264 | ₹468,791 |
-| R² | 0.93 | -0.00 |
-| MAPE | 17.76% | 106.58% |
+| | model | mean baseline | 5-fold CV on training rows |
+|---|---:|---:|---:|
+| MAE | ₹71,407 | ₹275,313 | ₹81,127 ± ₹1,934 |
+| RMSE | ₹122,920 | ₹468,791 | |
+| R² | 0.93 | -0.00 | 0.89 |
+| MAPE | 17.80% | 106.58% | 18.02% |
 
-The baseline is included deliberately. An R² of 0.93 means little on its own;
-it means more next to what predicting the average would have achieved.
+An R² of 0.93 means little on its own; the baseline shows what predicting the
+average would have scored.
 
-MAPE of ~18% is the honest headline: a typical prediction is off by roughly a
-fifth of the true price. That is useful as a starting point and not useful as a
-final number.
+MAPE of about 18% is the figure to quote: a typical prediction is off by
+roughly a fifth of the true price, and the test split and cross-validation
+agree on it. That is useful as a starting point, not as a final number.
 
-## Artifact size
+## Choosing the forest
 
-The model is committed to the repository, so its size is a real cost. The forest
-was sized against a measured curve on this training set rather than picked:
+The number of trees and the depth were chosen by `training/sweep.py`, which
+never sees the 1,386 test rows. Each configuration is scored with 5-fold
+cross-validation on the 5,540 training rows, and its compressed artifact size
+is measured by fitting it once on all of them. The rule was fixed before
+looking at the results: take the smallest artifact whose mean CV MAE is within
+one standard error of the best. Differences smaller than that are inside the
+noise between folds.
 
-| trees | depth | MAE | R² | MAPE | artifact |
-|---:|---:|---:|---:|---:|---:|
-| 200 | 18 | ₹71,466 | 0.931 | 17.96% | 16.1 MB |
-| 150 | 14 | ₹70,955 | 0.930 | 17.76% | 7.8 MB |
-| **100** | **12** | **₹71,366** | **0.931** | **17.76%** | **3.4 MB** |
-| 60 | 10 | ₹73,170 | 0.931 | 18.19% | 1.1 MB |
-| 50 | 8 | ₹79,690 | 0.923 | 20.06% | 0.4 MB |
+Selected rows of the 20 tried (all of them, with R² and MAPE, are in
+[model_sweep.txt](model_sweep.txt)):
 
-Above roughly 100 trees at depth 12 the forest is memorising rather than
-learning: the error stops improving and only the file grows. The chosen
-configuration is 5x smaller than the largest tried and marginally more accurate.
-Artifacts are written with `joblib` compression level 3, which costs about
-0.3 s of load time at startup and saves a further 5x.
+| trees | depth | CV MAE | ± 1 SE | artifact |
+|---:|---:|---:|---:|---:|
+| 200 | 18 | ₹80,273 | ₹1,553 | 15.7 MB |
+| 200 | 14 | ₹80,324 | ₹1,678 | 10.3 MB |
+| 100 | 12 | ₹80,787 | ₹1,784 | 3.3 MB |
+| **50** | **12** | **₹81,127** | ₹1,934 | **1.7 MB** |
+| 50 | 10 | ₹83,584 | ₹1,909 | 0.9 MB |
+| 50 | 8 | ₹88,631 | ₹1,859 | 0.4 MB |
+
+The best CV MAE was 200 trees at depth 18. Anything at or under ₹81,826 is
+within one standard error of it. The smallest such artifact is 50 trees at
+depth 12, nine times smaller. Depth matters much more than the number of trees
+here: going from depth 12 to 8 costs ₹7,500, while going from 200 trees to 50
+at the same depth costs ₹400.
+
+The test split was then scored once, for the chosen configuration only. Its
+MAE (₹71,407) is better than the CV estimate (₹81,127). That says this test
+split is easier than the average fold, not that the model got better, so the
+CV figure is the more conservative one to quote.
+
+The previous version (v3, 100 trees at depth 12) was sized by scoring
+configurations on the test rows themselves, which makes its reported error
+optimistic. v4 replaces it, at half the size and within ₹41 on the same test
+rows.
+
+v4 also drops a `StandardScaler` that sat in front of the forest. Trees split
+on thresholds, so rescaling a feature does not change what they learn.
+Refitting the old 100/12 forest without it moved the test MAE by ₹28 (0.04%).
+
+Artifacts are written with `joblib` compression level 3, which costs a fraction
+of a second at startup and makes the file about 5x smaller.
+
+## Serving
+
+Training fits with `n_jobs=-1`, and the saved artifact keeps that setting.
+`load_bundle` switches it to `n_jobs=1` at startup, because each request
+predicts a single row. Median time per prediction on 12 cores:
+
+| | n_jobs=-1 | n_jobs=1 | 8 at once, n_jobs=-1 | 8 at once, n_jobs=1 |
+|---|---:|---:|---:|---:|
+| v3, 100 trees | 30 ms | 4.3 ms | 38 /s | 73 /s |
+| v4, 50 trees | 18 ms | 3.1 ms | 55 /s | 112 /s |
+
+Raw output from three runs of each, made with `scripts/inference_benchmark.py`, is in
+[benchmarks/inference/n_jobs.txt](../benchmarks/inference/n_jobs.txt).
 
 ## Limitations
 
@@ -96,22 +137,22 @@ Artifacts are written with `joblib` compression level 3, which costs about
   feature against the training distribution recorded at training time. Under 0.1
   is stable, 0.1–0.25 a moderate shift, above 0.25 significant. Exposed to
   Prometheus as `model_feature_drift_psi{feature=...}`.
-- **Live accuracy** — `POST /predictions/{id}/actual` records a real sale price
+- **Live accuracy** — `POST /predictions/{prediction_id}/actual` records a real sale price
   against a prediction; `GET /model/performance` reports error over recent
   scored predictions next to the training metrics. Exposed as `model_live_mae`.
 
 Drift is the earlier signal of the two: input distributions shift immediately,
 whereas accuracy cannot be measured until outcomes come back.
 
-Each API worker keeps its own drift window in memory, so with several workers
-Prometheus sees one series per worker. Each is an independent estimate from its
-own random share of traffic; alert on the maximum across them rather than
-expecting a single number.
+Drift is computed over the newest 2,000 predictions in the prediction log, so
+every worker reports the same figure and it survives restarts. A background
+task recomputes it every minute.
 
 ## Reproducing
 
 ```bash
-python -m training.train_model
+python -m training.sweep         # model selection, about 3 minutes
+python -m training.train_model   # fit the chosen configuration, score the test split
 ```
 
 Deterministic given the same input file — the split, the forest and the

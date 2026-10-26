@@ -1,5 +1,10 @@
-import sklearn
+import uuid
 
+import pytest
+import sklearn
+from sqlalchemy import text
+
+from app.db.session import engine
 from app.services.model_registry import load_bundle
 
 
@@ -39,6 +44,15 @@ async def test_model_info_does_not_leak_the_training_distribution(client):
     assert 'training_distribution' not in (await client.get('/model/info')).json()
 
 
+def test_the_served_model_predicts_single_threaded(model_bundle):
+    """The artifact is saved with n_jobs=-1 from training; serving one row
+    across every core was 7x slower than on one."""
+    params = model_bundle.pipeline.get_params()
+    n_jobs = {name: value for name, value in params.items() if name.endswith('n_jobs')}
+    assert n_jobs
+    assert set(n_jobs.values()) == {1}
+
+
 def test_bundle_loads_without_metadata(tmp_path):
     from app.core.config import settings
 
@@ -59,41 +73,98 @@ def test_bundle_survives_corrupt_metadata(tmp_path):
     assert bundle.version is None
 
 
-async def test_recording_an_actual_price_scores_the_prediction(
-    client, auth_headers, valid_car, flush_predictions
-):
-    await client.post('/predict', json=valid_car, headers=auth_headers)
+async def _predict(client, auth_headers, valid_car, flush_predictions) -> dict:
+    response = await client.post('/predict', json=valid_car, headers=auth_headers)
     await flush_predictions()
+    return response.json()
 
-    history = await client.get(
-        '/predictions/history',
-        params={'company': valid_car['company'], 'year': valid_car['year']},
-        headers=auth_headers,
-    )
-    prediction_id = history.json()['items'][0]['id']
+
+async def test_recording_an_actual_price_scores_the_prediction(
+    client, auth_headers, operator_headers, valid_car, flush_predictions
+):
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
 
     response = await client.post(
-        f'/predictions/{prediction_id}/actual',
+        f'/predictions/{prediction["prediction_id"]}/actual',
         json={'actual_price': 500000},
-        headers=auth_headers,
+        headers=operator_headers,
     )
     assert response.status_code == 200
     body = response.json()
-    assert body['id'] == prediction_id
+    assert body['prediction_id'] == prediction['prediction_id']
     assert body['actual_price'] == 500000
+    assert body['predicted_price'] == pytest.approx(prediction['predicted_price'], abs=0.01)
     assert body['absolute_error'] == round(abs(body['predicted_price'] - 500000), 2)
 
 
-async def test_recording_against_a_missing_prediction_is_404(client, auth_headers):
+async def test_a_recorded_sale_price_is_not_overwritten(
+    client, auth_headers, operator_headers, valid_car, flush_predictions
+):
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
+    url = f'/predictions/{prediction["prediction_id"]}/actual'
+
+    first = await client.post(url, json={'actual_price': 500000}, headers=operator_headers)
+    second = await client.post(url, json={'actual_price': 1}, headers=operator_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    async with engine.connect() as conn:
+        stored = await conn.scalar(text('SELECT actual_price FROM predictions'))
+    assert float(stored) == 500000
+
+
+async def test_recording_against_a_missing_prediction_is_404(client, operator_headers):
     response = await client.post(
-        '/predictions/999999999/actual', json={'actual_price': 100}, headers=auth_headers
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers=operator_headers
     )
     assert response.status_code == 404
 
 
-async def test_actual_price_is_validated(client, auth_headers):
-    response = await client.post('/predictions/1/actual', json={'actual_price': -5}, headers=auth_headers)
+async def test_the_internal_row_id_is_not_accepted(client, operator_headers):
+    response = await client.post(
+        '/predictions/1/actual', json={'actual_price': 100}, headers=operator_headers
+    )
     assert response.status_code == 422
+
+
+async def test_actual_price_is_validated(client, operator_headers):
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': -5}, headers=operator_headers
+    )
+    assert response.status_code == 422
+
+
+async def test_a_user_token_cannot_report_a_sale_price(client, auth_headers):
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers=auth_headers
+    )
+    assert response.status_code == 401
+    assert response.json()['detail'] == 'Missing or invalid API key'
+
+
+async def test_a_wrong_operator_key_is_rejected(client):
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual', json={'actual_price': 100}, headers={'api-key': 'not-the-key'}
+    )
+    assert response.status_code == 401
+
+
+async def test_a_non_ascii_api_key_is_rejected_not_crashed(client):
+    # Header values arrive decoded as latin-1, so any byte over 0x7f becomes a
+    # non-ASCII character - which secrets.compare_digest refuses for str.
+    response = await client.post(
+        f'/predictions/{uuid.uuid4()}/actual',
+        json={'actual_price': 100},
+        headers={'api-key': 'cl\u00e9-invalide'.encode()},
+    )
+    assert response.status_code == 401
+
+
+async def test_reading_drift_is_open_but_recomputing_needs_the_key(client, operator_headers):
+    assert (await client.get('/model/drift')).status_code == 200
+    assert (await client.get('/model/drift', params={'recompute': 'true'})).status_code == 401
+    forced = await client.get('/model/drift', params={'recompute': 'true'}, headers=operator_headers)
+    assert forced.status_code == 200
 
 
 async def test_performance_is_empty_before_any_outcome(client, auth_headers):
@@ -102,28 +173,58 @@ async def test_performance_is_empty_before_any_outcome(client, auth_headers):
     body = response.json()
     assert body['scored'] == 0
     assert body['live_mae'] is None
-    assert 'POST /predictions/{id}/actual' in body['note']
+    assert 'POST /predictions/{prediction_id}/actual' in body['note']
 
 
 async def test_performance_reports_live_error_against_training(
-    client, auth_headers, valid_car, flush_predictions
+    client, auth_headers, operator_headers, valid_car, flush_predictions
 ):
-    await client.post('/predict', json=valid_car, headers=auth_headers)
-    await flush_predictions()
-
-    history = await client.get(
-        '/predictions/history',
-        params={'company': valid_car['company'], 'year': valid_car['year']},
-        headers=auth_headers,
-    )
-    item = history.json()['items'][0]
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
     await client.post(
-        f'/predictions/{item["id"]}/actual',
+        f'/predictions/{prediction["prediction_id"]}/actual',
         json={'actual_price': 500000},
-        headers=auth_headers,
+        headers=operator_headers,
     )
 
     body = (await client.get('/model/performance', headers=auth_headers)).json()
     assert body['scored'] == 1
-    assert body['live_mae'] == round(abs(float(item['predicted_price']) - 500000), 2)
+    assert body['live_mae'] == pytest.approx(abs(prediction['predicted_price'] - 500000), abs=0.01)
     assert body['training_mae'] > 0
+
+
+async def test_live_error_reaches_metrics_without_anyone_asking(
+    client, auth_headers, operator_headers, valid_car, flush_predictions
+):
+    """The gauge used to change only when GET /model/performance was called,
+    so the dashboard panel sat still however many outcomes came in."""
+    from prometheus_client import REGISTRY
+
+    from app.services.health_refresh import refresher
+
+    prediction = await _predict(client, auth_headers, valid_car, flush_predictions)
+    await client.post(
+        f'/predictions/{prediction["prediction_id"]}/actual',
+        json={'actual_price': 500000},
+        headers=operator_headers,
+    )
+
+    await refresher.refresh_once()
+
+    assert REGISTRY.get_sample_value('model_live_scored_predictions') == 1
+    assert REGISTRY.get_sample_value('model_live_mae') == pytest.approx(
+        abs(prediction['predicted_price'] - 500000), abs=0.01
+    )
+
+
+def test_training_error_is_exported_for_the_dashboard(tmp_path):
+    import math
+
+    from prometheus_client import REGISTRY
+
+    from app.core.config import settings
+
+    bundle = load_bundle(settings.MODEL_PATH, settings.MODEL_METADATA_PATH)
+    assert REGISTRY.get_sample_value('model_training_mae') == bundle.metadata['metrics']['mae']
+
+    load_bundle(settings.MODEL_PATH, str(tmp_path / 'missing.json'))
+    assert math.isnan(REGISTRY.get_sample_value('model_training_mae'))

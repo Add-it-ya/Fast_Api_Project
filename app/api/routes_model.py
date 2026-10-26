@@ -1,24 +1,18 @@
 from fastapi import APIRouter, Depends, Query, Request
-from prometheus_client import Gauge
 
-from app.core.dependencies import Principal, get_current_principal, get_prediction_repository
+from app.core.dependencies import (
+    Principal,
+    api_key_scheme,
+    get_current_principal,
+    get_prediction_repository,
+    require_api_key,
+)
 from app.core.exceptions import ModelUnavailableError
 from app.db.repositories import PredictionRepository
 from app.schemas.model import DriftReport, ModelInfo, ModelPerformance
 from app.services.drift import monitor
 
 router = APIRouter()
-
-LIVE_MAE = Gauge(
-    'model_live_mae',
-    'Mean absolute error over predictions with a reported outcome',
-    multiprocess_mode='max',
-)
-LIVE_SCORED = Gauge(
-    'model_live_scored_predictions',
-    'Predictions that have a reported outcome',
-    multiprocess_mode='max',
-)
 
 
 @router.get('/model/info', response_model=ModelInfo)
@@ -36,12 +30,22 @@ async def model_info(request: Request):
 
 
 @router.get('/model/drift', response_model=DriftReport)
-async def model_drift(recompute: bool = Query(default=False)):
-    """Population Stability Index of live features against training.
+async def model_drift(
+    recompute: bool = Query(default=False),
+    api_key: str | None = Depends(api_key_scheme),
+):
+    """Population Stability Index of the newest predictions' features
+    against training.
 
     Under 0.1 is stable, 0.1-0.25 a moderate shift, above 0.25 significant.
+    The result is refreshed every minute in the background; reading it is
+    open. Forcing a recompute reads the database and costs CPU, so it needs
+    the operator key.
     """
-    return monitor.refresh() if recompute else monitor.snapshot()
+    if not recompute:
+        return monitor.snapshot()
+    await require_api_key(api_key)
+    return await monitor.refresh()
 
 
 @router.get('/model/performance', response_model=ModelPerformance)
@@ -57,12 +61,8 @@ async def model_performance(
     bundle = getattr(request.app.state, 'model_bundle', None)
     training = (bundle.metadata.get('metrics', {}) if bundle else {}) or {}
 
-    if live['mae'] is not None:
-        LIVE_MAE.set(live['mae'])
-    LIVE_SCORED.set(live['scored'])
-
     if live['scored'] == 0:
-        note = 'No outcomes reported yet. POST /predictions/{id}/actual to score a prediction.'
+        note = 'No outcomes reported yet. POST /predictions/{prediction_id}/actual to score a prediction.'
     else:
         note = (
             f'Live error over the last {live["scored"]} scored predictions, '

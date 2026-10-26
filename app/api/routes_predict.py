@@ -1,4 +1,5 @@
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,7 +10,7 @@ from app.core.dependencies import (
     get_prediction_service,
     require_api_key,
 )
-from app.core.exceptions import AppError
+from app.core.exceptions import ActualAlreadyRecordedError, PredictionNotFoundError
 from app.core.metrics import PREDICTION_LATENCY, PREDICTION_VALUE, PREDICTIONS
 from app.core.rate_limit import enforce_rate_limit
 from app.db.repositories import PredictionRepository
@@ -21,7 +22,6 @@ from app.schemas.prediction import (
     PredictionRecord,
     PredictionResponse,
 )
-from app.services.drift import monitor
 from app.services.model_service import PredictionService
 from app.services.prediction_writer import writer
 
@@ -31,7 +31,7 @@ router = APIRouter()
 @router.post(
     '/predict',
     response_model=PredictionResponse,
-    dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_rate_limit)],
 )
 async def predict_price(
     car: CarFeatures,
@@ -47,37 +47,42 @@ async def predict_price(
     PREDICTIONS.labels(company=features['company'], cache=outcome).inc()
     PREDICTION_VALUE.observe(price)
 
-    monitor.observe(features)
-
-    writer.enqueue({**features, 'user_id': principal.id, 'predicted_price': price, 'cache_hit': cache_hit})
-    return PredictionResponse(predicted_price=f'{price:,.2f}', cached=cache_hit)
+    prediction_id = uuid.uuid4()
+    writer.enqueue(
+        {
+            **features,
+            'public_id': prediction_id,
+            'user_id': principal.id,
+            'predicted_price': price,
+            'cache_hit': cache_hit,
+        }
+    )
+    return PredictionResponse(
+        prediction_id=prediction_id,
+        predicted_price=round(price, 2),
+        model_version=service.model_version,
+        cached=cache_hit,
+    )
 
 
 @router.get(
     '/predictions/history',
     response_model=PredictionHistory,
-    dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_rate_limit)],
 )
 async def prediction_history(
-    company: Company,
-    year: int = Query(ge=1980, le=2026),
+    company: Company | None = None,
+    year: int | None = Query(default=None, ge=1980, le=2026),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    _: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(get_current_principal),
     predictions: PredictionRepository = Depends(get_prediction_repository),
 ):
-    rows = await predictions.history(company=company, year=year, limit=limit, offset=offset)
-    return PredictionHistory(
-        company=company,
-        year=year,
-        count=len(rows),
-        items=[PredictionRecord.model_validate(row) for row in rows],
+    """The caller's own predictions, newest first."""
+    rows = await predictions.history(
+        user_id=principal.id, company=company, year=year, limit=limit, offset=offset
     )
-
-
-class PredictionNotFoundError(AppError):
-    status_code = 404
-    detail = 'No such prediction'
+    return PredictionHistory(count=len(rows), items=[PredictionRecord.model_validate(row) for row in rows])
 
 
 @router.post(
@@ -86,19 +91,24 @@ class PredictionNotFoundError(AppError):
     dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
 )
 async def record_actual_price(
-    prediction_id: int,
+    prediction_id: uuid.UUID,
     body: ActualPrice,
-    _: Principal = Depends(get_current_principal),
     predictions: PredictionRepository = Depends(get_prediction_repository),
 ):
-    """Report the real sale price so the prediction can be scored."""
-    row = await predictions.record_actual(prediction_id, body.actual_price)
-    if row is None:
+    """Report the real sale price so the prediction can be scored.
+
+    An operator action, not a user one: the sale price comes from whoever
+    records the sale, and letting any user set it would let them skew the
+    live error figures. A recorded price is never overwritten.
+    """
+    predicted = await predictions.record_actual(prediction_id, body.actual_price)
+    if predicted is None:
+        if await predictions.exists(prediction_id):
+            raise ActualAlreadyRecordedError()
         raise PredictionNotFoundError()
 
-    predicted = float(row.predicted_price)
     return ScoredPrediction(
-        id=row.id,
+        prediction_id=prediction_id,
         predicted_price=predicted,
         actual_price=body.actual_price,
         absolute_error=round(abs(predicted - body.actual_price), 2),

@@ -1,0 +1,13 @@
+# 2026-10-25T14:53Z, git 6787563, PostgreSQL 16 on the same Docker Desktop host
+# python scripts/seed_predictions.py --rows 1000000 --users 5 --compare
+
+row-by-row INSERT of 10,000 rows...
+  4.45s -> 2,248 rows/sec
+
+COPY of 1,000,000 rows in chunks of 50,000...
+  29.88s in COPY      -> 33,463 rows/sec
+  35.18s end to end   -> 28,422 rows/sec (incl. generation)
+
+COPY is 15x faster than row-by-row INSERT
+
+predictions: 1,010,000 rows, 281 MB total (183 MB heap)

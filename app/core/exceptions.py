@@ -47,6 +47,18 @@ class ModelUnavailableError(AppError):
     detail = 'Prediction model is not available'
 
 
+class PredictionNotFoundError(AppError):
+    status_code = 404
+    # Rows are written in batches just after the response, so a prediction
+    # made a moment ago can briefly be missing.
+    detail = 'No such prediction. One made moments ago may not be recorded yet; retry shortly.'
+
+
+class ActualAlreadyRecordedError(AppError):
+    status_code = 409
+    detail = 'A sale price is already recorded for this prediction'
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):

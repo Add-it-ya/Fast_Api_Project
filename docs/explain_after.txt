@@ -1,16 +1,40 @@
--- PostgreSQL 16.15
--- predictions: 1010000 rows, 226 MB
--- index: ix_predictions_company_year_created_at btree (company, year, created_at DESC)
+-- PostgreSQL 16.15, seeded with scripts/seed_predictions.py --rows 1000000 --users N
+
+-- heavy accounts: 5 users, about 200,000 predictions each
+-- user 1 has 199,472 rows; table 1,000,000 rows, about 182 MB heap
+-- schema 0005: ix_predictions_user_id_created_at (user_id, created_at DESC)
+-- six runs after one warm-up (ms): 0.226, 0.209, 0.179, 0.176, 0.183, 0.246
+-- median 0.196 ms; the plan below is the run closest to it
 --
 -- EXPLAIN (ANALYZE, BUFFERS)
--- SELECT id, company, year, fuel, transmission, km_driven, predicted_price, cache_hit, created_at FROM predictions WHERE company='Maruti' AND year=2015 ORDER BY created_at DESC LIMIT 50;
+-- SELECT * FROM predictions WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50;
 
-Limit  (cost=0.42..196.81 rows=50 width=56) (actual time=0.025..0.154 rows=50 loops=1)
+Limit  (cost=0.42..25.03 rows=50 width=152) (actual time=0.023..0.133 rows=50 loops=1)
   Buffers: shared hit=53
-  ->  Index Scan using ix_predictions_company_year_created_at on predictions  (cost=0.42..4599.65 rows=1171 width=56) (actual time=0.024..0.150 rows=50 loops=1)
-        Index Cond: (((company)::text = 'Maruti'::text) AND (year = 2015))
+  ->  Index Scan using ix_predictions_user_id_created_at on predictions  (cost=0.42..98309.37 rows=199800 width=152) (actual time=0.022..0.129 rows=50 loops=1)
+        Index Cond: (user_id = 1)
         Buffers: shared hit=53
 Planning:
-  Buffers: shared hit=165
-Planning Time: 0.700 ms
-Execution Time: 0.177 ms
+  Buffers: shared hit=205
+Planning Time: 1.023 ms
+Execution Time: 0.209 ms
+
+
+-- typical accounts: 1,000 users, about 1,000 predictions each
+-- user 1 has 1,007 rows; table 1,000,000 rows, about 182 MB heap
+-- schema 0005: ix_predictions_user_id_created_at (user_id, created_at DESC)
+-- six runs after one warm-up (ms): 0.158, 0.174, 0.162, 0.192, 0.161, 0.164
+-- median 0.163 ms; the plan below is the run closest to it
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT * FROM predictions WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50;
+
+Limit  (cost=0.42..198.28 rows=50 width=152) (actual time=0.019..0.108 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan using ix_predictions_user_id_created_at on predictions  (cost=0.42..3933.74 rows=994 width=152) (actual time=0.019..0.105 rows=50 loops=1)
+        Index Cond: (user_id = 1)
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=205
+Planning Time: 0.868 ms
+Execution Time: 0.162 ms

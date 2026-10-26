@@ -12,6 +12,7 @@ from app.core.logging_config import configure_logging, shutdown_logging
 from app.db.session import engine
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.services.drift import monitor
+from app.services.health_refresh import refresher
 from app.services.model_registry import load_bundle
 from app.services.prediction_writer import writer
 
@@ -40,16 +41,18 @@ async def lifespan(app: FastAPI):
         logger.exception('Failed to load model from %s', settings.MODEL_PATH)
 
     writer.start()
+    refresher.start()
 
     yield
 
+    await refresher.stop()
     await writer.stop()
     await close_redis()
     await engine.dispose()
     shutdown_logging()
 
 
-app = FastAPI(title=settings.PROJECT_NAME, version='2.0.0', lifespan=lifespan)
+app = FastAPI(title=settings.PROJECT_NAME, version='3.0.0', lifespan=lifespan)
 
 app.add_middleware(LoggingMiddleware)
 

@@ -34,7 +34,11 @@ groups:
           description: 'p95 is {{ $value | humanizeDuration }}. Check saturation before blaming the model.'
 
       - alert: CacheHitRatioCollapsed
+        # The first condition stops an idle API from firing: with no traffic
+        # the ratio below is 0 / 0.001, which is under any threshold.
         expr: |
+          sum(rate(predictions_total[15m])) > 0.1
+          and
           sum(rate(predictions_total{cache="hit"}[15m]))
             / clamp_min(sum(rate(predictions_total[15m])), 0.001) < 0.2
         for: 15m
@@ -59,15 +63,31 @@ groups:
             before any accuracy metric shows it.
 
       - alert: PredictionLogShedding
-        expr: rate(prediction_log_rows_dropped_total[5m]) > 0
+        expr: sum by (reason) (rate(prediction_log_rows_dropped_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: 'Prediction log rows are being dropped'
+          summary: 'Prediction log rows are being dropped ({{ $labels.reason }})'
           description: >-
-            The write queue is full, so rows are being shed to keep the request
-            path fast. The database is not keeping up with prediction volume.
+            queue_full: rows are being shed to keep the request path fast, so
+            the database is not keeping up with prediction volume. rejected:
+            the database refused individual rows, usually a user deleted while
+            their token was still valid. write_failed: the database could not
+            be reached at all.
+
+      - alert: RedisDegraded
+        # The cache and the rate limiter both fail open, so a Redis outage does
+        # not show up as errors on any request. It shows up here instead.
+        expr: sum(rate(redis_errors_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis is failing; running without the cache or rate limits'
+          description: >-
+            Every prediction is a model call and nothing is being throttled
+            until Redis returns. /ready reports which dependency is down.
 
       - alert: PredictionLogQueueBacklog
         expr: prediction_log_queue_depth > 5000

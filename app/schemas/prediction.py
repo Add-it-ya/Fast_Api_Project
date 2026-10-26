@@ -1,16 +1,17 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 # The pipeline one-hot encodes with handle_unknown='ignore', so an unseen
 # company silently becomes an all-zero vector and the model returns a number
 # that means nothing. Constraining to the trained categories turns that quiet
-# wrong answer into a 422.
+# wrong answer into a 422. These lists are exactly what the encoder learned;
+# tests/test_validation.py fails if a retrain changes them.
 Company = Literal[
     'Ambassador',
-    'Ashok',
     'Audi',
     'BMW',
     'Chevrolet',
@@ -26,7 +27,6 @@ Company = Literal[
     'Jeep',
     'Kia',
     'Land',
-    'Lexus',
     'MG',
     'Mahindra',
     'Maruti',
@@ -83,14 +83,18 @@ class CarFeatures(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    predicted_price: str
+    prediction_id: UUID = Field(description='Quote this to report the eventual sale price')
+    predicted_price: float = Field(description='Estimated selling price')
+    currency: Literal['INR'] = 'INR'
+    model_version: int | None
     cached: bool
 
 
 class PredictionRecord(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    # The internal row id stays internal; clients only ever see the public one.
+    prediction_id: UUID = Field(validation_alias='public_id')
     company: str
     year: int
     fuel: str
@@ -102,7 +106,5 @@ class PredictionRecord(BaseModel):
 
 
 class PredictionHistory(BaseModel):
-    company: str
-    year: int
     count: int
     items: list[PredictionRecord]

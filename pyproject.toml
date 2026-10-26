@@ -4,9 +4,6 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 addopts = "-q --strict-markers"
 log_level = "WARNING"
-markers = [
-    "integration: needs a live PostgreSQL and Redis",
-]
 
 [tool.coverage.run]
 source = ["app"]

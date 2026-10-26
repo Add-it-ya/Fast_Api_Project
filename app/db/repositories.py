@@ -1,11 +1,12 @@
 """Data access layer.
 
 Every query against the database lives here. Routes and services never hold a
-session or build a statement themselves, which is what keeps the API, business
-and data-access layers genuinely separate rather than nominally so.
+session or build a statement themselves.
 """
 
-from sqlalchemy import func, insert, select
+import uuid
+
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Prediction, User
@@ -34,48 +35,51 @@ class PredictionRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def log(
+    async def history(
         self,
         *,
-        user_id: int | None,
-        features: dict,
-        predicted_price: float,
-        cache_hit: bool,
-    ) -> Prediction:
-        prediction = Prediction(
-            user_id=user_id,
-            predicted_price=predicted_price,
-            cache_hit=cache_hit,
-            **features,
-        )
-        self._session.add(prediction)
-        await self._session.commit()
-        return prediction
+        user_id: int,
+        company: str | None = None,
+        year: int | None = None,
+        limit: int,
+        offset: int,
+    ) -> list[Prediction]:
+        """One user's predictions, newest first, optionally narrowed to a brand
+        or model year.
 
-    async def history(self, *, company: str, year: int, limit: int, offset: int) -> list[Prediction]:
-        """Most recent predictions for a company and model year.
-
-        The equality filters and the sort are served by one composite index on
-        (company, year, created_at DESC) - see docs/query_optimisation.md.
+        Served by the (user_id, created_at DESC) index - see
+        docs/query_optimisation.md.
         """
-        statement = (
-            select(Prediction)
-            .where(Prediction.company == company, Prediction.year == year)
-            .order_by(Prediction.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        statement = select(Prediction).where(Prediction.user_id == user_id)
+        if company is not None:
+            statement = statement.where(Prediction.company == company)
+        if year is not None:
+            statement = statement.where(Prediction.year == year)
+        statement = statement.order_by(Prediction.created_at.desc()).limit(limit).offset(offset)
         result = await self._session.execute(statement)
         return list(result.scalars().all())
 
-    async def record_actual(self, prediction_id: int, actual_price: float) -> Prediction | None:
-        prediction = await self._session.get(Prediction, prediction_id)
-        if prediction is None:
-            return None
-        prediction.actual_price = actual_price
+    async def record_actual(self, public_id: uuid.UUID, actual_price: float) -> float | None:
+        """Set the sale price if none is recorded yet; return the predicted
+        price it is scored against, or None when nothing was updated.
+
+        One conditional UPDATE, so two reports racing for the same prediction
+        cannot both succeed.
+        """
+        statement = (
+            update(Prediction)
+            .where(Prediction.public_id == public_id, Prediction.actual_price.is_(None))
+            .values(actual_price=actual_price)
+            .returning(Prediction.predicted_price)
+            .execution_options(synchronize_session=False)
+        )
+        predicted = (await self._session.execute(statement)).scalar_one_or_none()
         await self._session.commit()
-        await self._session.refresh(prediction)
-        return prediction
+        return float(predicted) if predicted is not None else None
+
+    async def exists(self, public_id: uuid.UUID) -> bool:
+        found = await self._session.scalar(select(Prediction.id).where(Prediction.public_id == public_id))
+        return found is not None
 
     async def live_performance(self, limit: int = 1000) -> dict:
         """Error over the most recent predictions that have a reported outcome.
@@ -108,6 +112,21 @@ class PredictionRepository:
             'mae': round(float(row.mae), 2) if row.mae is not None else None,
             'mape_pct': round(float(row.mape), 2) if row.mape is not None else None,
         }
+
+    async def recent_inputs(self, columns: list[str], limit: int) -> list[dict]:
+        """The given feature columns of the newest `limit` predictions.
+
+        Newest by id rather than created_at: ids grow in insertion order, and
+        the primary key index serves the ORDER BY, so this reads `limit` rows
+        instead of sorting the table.
+        """
+        statement = (
+            select(*(getattr(Prediction, column) for column in columns))
+            .order_by(Prediction.id.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [dict(row._mapping) for row in result]
 
     async def log_many(self, rows: list[dict]) -> int:
         """Insert a batch of prediction rows in a single statement.

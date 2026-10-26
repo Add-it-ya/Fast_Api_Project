@@ -58,7 +58,8 @@ services:
       - backend
 
   redis:
-    image: redis:alpine
+    # Same major version CI tests against.
+    image: redis:7-alpine
     container_name: redis1
     ports:
       - "6379:6379"
@@ -71,7 +72,7 @@ services:
       - backend
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.14.0
     container_name: prometheus1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
@@ -82,7 +83,7 @@ services:
       - backend
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.0
     container_name: grafana1
     environment:
       # Local stack only. Anonymous view access so the dashboard opens without

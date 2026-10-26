@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -38,7 +40,7 @@ class ActualPrice(BaseModel):
 
 
 class ScoredPrediction(BaseModel):
-    id: int
+    prediction_id: UUID
     predicted_price: float
     actual_price: float
     absolute_error: float

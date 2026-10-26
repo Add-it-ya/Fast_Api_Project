@@ -278,7 +278,7 @@
     {
       "type": "timeseries",
       "title": "Feature drift (PSI vs training)",
-      "description": "Under 0.1 stable, 0.1-0.25 moderate, above 0.25 significant. Each worker keeps its own window, so expect one series per worker per feature.",
+      "description": "Under 0.1 stable, 0.1-0.25 moderate, above 0.25 significant. Computed over the newest 2,000 predictions, refreshed every minute.",
       "gridPos": {
         "h": 9,
         "w": 12,
@@ -352,7 +352,7 @@
         },
         {
           "refId": "B",
-          "expr": "71366",
+          "expr": "max(model_training_mae)",
           "legendFormat": "training MAE"
         }
       ]
